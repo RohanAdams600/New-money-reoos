@@ -6,6 +6,7 @@ const store = require('./lib/store');
 const { classifyLead, MODEL, DEMO_MODE } = require('./lib/claudeService');
 const { PLANS, getPlan } = require('./lib/plans');
 const billing = require('./lib/billingService');
+const prospectStore = require('./lib/prospectStore');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -263,6 +264,25 @@ app.get('/api/customer/:customerId/leads/export', (req, res) => {
 // GET /api/plans — the pricing tiers available to purchase
 app.get('/api/plans', (req, res) => {
   res.json({ plans: PLANS, billingDemoMode: billing.BILLING_DEMO_MODE });
+});
+
+// GET /api/prospects — researched sales prospects (real companies matching the
+// ICP). Populated by `npm run find-prospects`; falls back to the bundled,
+// manually-verified seed list if that script hasn't been run yet.
+app.get('/api/prospects', (req, res) => {
+  res.json({ prospects: prospectStore.listProspects() });
+});
+
+// GET /api/prospects/export — download the prospect list as CSV
+app.get('/api/prospects/export', (req, res) => {
+  const prospects = prospectStore.listProspects();
+  const header = ['Name', 'Website', 'City', 'Team Size', 'Specialty', 'Phone', 'Email', 'Source', 'Verified At'];
+  const rows = prospects.map((p) => [
+    p.name, p.website, p.city, p.teamSizeNote, p.specialty, p.phone, p.email, p.source, p.verifiedAt,
+  ].map(csvEscape).join(','));
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="prospects.csv"');
+  res.send([header.join(','), ...rows].join('\n'));
 });
 
 // POST /api/checkout — buy a plan: provisions the customer record, then starts

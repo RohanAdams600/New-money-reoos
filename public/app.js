@@ -426,7 +426,36 @@ document.getElementById('test-submit').addEventListener('click', async (e) => {
   }
 });
 
+function renderProspectRow(p) {
+  return `
+    <tr>
+      <td>${escapeHtml(p.name)}</td>
+      <td><a href="${escapeHtml(p.website)}" target="_blank" rel="noopener noreferrer">${escapeHtml(p.website)}</a></td>
+      <td>${escapeHtml(p.city)}</td>
+      <td>${escapeHtml(p.teamSizeNote)}</td>
+      <td>${escapeHtml(p.specialty)}</td>
+      <td>${escapeHtml(p.phone || p.email || '—')}</td>
+    </tr>
+  `;
+}
+
+async function loadProspects() {
+  try {
+    const { prospects } = await fetchJson('/api/prospects');
+    const el = document.getElementById('prospects-list');
+    el.innerHTML = prospects.length ? `
+      <table class="leads-table">
+        <thead><tr><th>Name</th><th>Website</th><th>City</th><th>Team Size</th><th>Specialty</th><th>Contact</th></tr></thead>
+        <tbody>${prospects.map(renderProspectRow).join('')}</tbody>
+      </table>
+    ` : '<div class="empty-state">No prospects yet — run `npm run find-prospects`.</div>';
+  } catch (err) {
+    console.error('Failed to load prospects:', err);
+  }
+}
+
 refreshAll();
 loadBusinessInfo();
 loadConfig();
+loadProspects();
 setInterval(refreshAll, 15000);
