@@ -12,7 +12,8 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "openai": "^7.1.0"
+    "openai": "^7.1.0",
+    "stripe": "^22.3.2"
   },
   "engines": {
     "node": ">=18"

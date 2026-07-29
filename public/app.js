@@ -39,7 +39,11 @@ async function loadStats() {
   }
 }
 
+// Tracks whether a plan's "get started" signup form is expanded.
+const pricingUiState = {};
+
 function renderPricingTier(tier) {
+  const formOpen = !!pricingUiState[tier.id];
   return `
     <div class="pricing-tier ${tier.featured ? 'featured' : ''}">
       ${tier.featured ? '<div class="tier-flag">Target Plan</div>' : ''}
@@ -49,6 +53,23 @@ function renderPricingTier(tier) {
       <ul class="tier-features">
         ${tier.features.map((f) => `<li>${escapeHtml(f)}</li>`).join('')}
       </ul>
+      <button type="button" class="get-started-btn" data-plan="${tier.id}">
+        ${formOpen ? 'Cancel' : 'Get Started'}
+      </button>
+      ${formOpen ? `
+        <form class="signup-form" data-plan="${tier.id}">
+          <label>Company Name</label>
+          <input type="text" name="name" required placeholder="e.g. Acme Growth Agency" />
+          <label>What you do</label>
+          <textarea name="description" rows="2" required placeholder="e.g. Full-service digital marketing agency"></textarea>
+          <label>ICP Company Size (optional)</label>
+          <input type="text" name="icpSize" placeholder="e.g. 5-25 people" />
+          <label>ICP Annual Budget (optional)</label>
+          <input type="text" name="icpBudget" placeholder="e.g. $50k-$200k" />
+          <button type="submit">Continue to Checkout — ${escapeHtml(tier.priceFormatted)}</button>
+          <div class="form-status" data-role="signup-status"></div>
+        </form>
+      ` : ''}
     </div>
   `;
 }
@@ -74,6 +95,48 @@ async function loadBusinessInfo() {
     console.error('Failed to load business info:', err);
   }
 }
+
+document.getElementById('pricing-tiers').addEventListener('click', (e) => {
+  const btn = e.target.closest('.get-started-btn');
+  if (!btn) return;
+  const planId = btn.dataset.plan;
+  pricingUiState[planId] = !pricingUiState[planId];
+  loadBusinessInfo();
+});
+
+document.getElementById('pricing-tiers').addEventListener('submit', async (e) => {
+  const form = e.target.closest('.signup-form');
+  if (!form) return;
+  e.preventDefault();
+
+  const planId = form.dataset.plan;
+  const statusEl = form.querySelector('[data-role="signup-status"]');
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const payload = {
+    planId,
+    name: form.name.value.trim(),
+    description: form.description.value.trim(),
+    icpSize: form.icpSize.value.trim(),
+    icpBudget: form.icpBudget.value.trim(),
+  };
+
+  submitBtn.disabled = true;
+  statusEl.textContent = 'Starting checkout...';
+  statusEl.className = 'form-status';
+
+  try {
+    const data = await fetchJson('/api/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    window.location.href = data.url;
+  } catch (err) {
+    statusEl.textContent = err.message;
+    statusEl.className = 'form-status error';
+    submitBtn.disabled = false;
+  }
+});
 
 // Per-customer UI state (expanded/filter/editing) — kept outside the re-rendered
 // markup so it survives the periodic refresh.

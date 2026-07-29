@@ -4,6 +4,8 @@ const path = require('path');
 
 const store = require('./lib/store');
 const { classifyLead, MODEL, DEMO_MODE } = require('./lib/claudeService');
+const { PLANS, getPlan } = require('./lib/plans');
+const billing = require('./lib/billingService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,56 +19,41 @@ const BUSINESS_INFO = {
   targetCustomer: 'Digital Marketing Agencies (5-25 people)',
   painPoint:
     'Wasting 15-20 hours/week filtering low-quality leads while prospects go cold waiting for responses',
-  // Growth is the target plan the original pricing model is built around ($4,500/mo,
-  // $54k/year LTV). Starter is the low-friction entry point; Enterprise (10x Growth)
-  // is for agency networks/holding companies running many brands through one account.
-  pricingTiers: [
-    {
-      id: 'starter',
-      name: 'Starter',
-      priceMonthly: 1500,
-      priceFormatted: '$1,500/month',
-      tagline: 'For agencies just getting started with automated lead qualification',
-      features: [
-        'Up to 200 classified leads/month',
-        'HOT / WARM / COLD classification',
-        'Real-time dashboard & stats',
-        '1 webhook, standard qualifying questions template',
-        'Email support (48-hour response)',
-      ],
-    },
-    {
-      id: 'growth',
-      name: 'Growth',
-      priceMonthly: 4500,
-      priceFormatted: '$4,500/month',
-      tagline: 'Our target plan — built for growing agencies with high lead flow',
-      featured: true,
-      features: [
-        'Unlimited classified leads',
-        'Full dashboard: live metrics, lead log, CSV export',
-        'Fully customizable ICP & qualifying questions',
-        'Edit/manage customer profiles, in-browser lead testing',
-        'Priority email + chat support (same-day response)',
-      ],
-    },
-    {
-      id: 'enterprise',
-      name: 'Enterprise',
-      priceMonthly: 45000,
-      priceFormatted: '$45,000/month',
-      tagline: 'For agency networks, franchises, and holding companies running multiple brands at scale',
-      features: [
-        'Everything in Growth, across unlimited sub-brands/webhooks',
-        'Dedicated account manager & onboarding',
-        'Custom-tuned classification criteria per brand',
-        'White-label dashboard (your branding, not ours)',
-        'API access for direct CRM/telephony integration',
-        'SLA-backed uptime & dedicated infrastructure',
-      ],
-    },
-  ],
+  pricingTiers: PLANS,
 };
+
+// Stripe webhook needs the raw request body for signature verification, so it must
+// be registered with express.raw() BEFORE the global express.json() below — once
+// express.json() runs for a request, the raw body is gone.
+app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  let event;
+  try {
+    event = billing.verifyWebhookEvent(req.body, req.headers['stripe-signature']);
+  } catch (err) {
+    console.error('[stripe/webhook] signature verification failed:', err.message);
+    return res.status(400).send(`Webhook signature verification failed: ${err.message}`);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const customerId = session.client_reference_id;
+    if (customerId && store.getCustomer(customerId)) {
+      store.setCustomerPlan(customerId, session.metadata?.planId || null, 'active');
+      store.setStripeIds(customerId, {
+        stripeCustomerId: session.customer,
+        stripeSubscriptionId: session.subscription,
+      });
+    }
+  } else if (event.type === 'customer.subscription.deleted') {
+    const subscription = event.data.object;
+    const customer = store.findCustomerByStripeSubscription(subscription.id);
+    if (customer) {
+      store.setCustomerPlan(customer.id, customer.planId, 'canceled');
+    }
+  }
+
+  res.json({ received: true });
+});
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -82,11 +69,41 @@ function serializeCustomer(customer, { includeLeads = false } = {}) {
     createdAt: customer.createdAt,
     webhookUrl: `/webhook/${customer.id}`,
     stats: customer.stats,
+    planId: customer.planId,
+    billingStatus: customer.billingStatus,
   };
   if (includeLeads) {
     serialized.leads = customer.leads;
   }
   return serialized;
+}
+
+function successPageHtml({ webhookUrl, planName }) {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="UTF-8" /><title>You're all set — LeadQualify AI</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f9fafb; color: #1f2937; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1.5rem; }
+  .card { background: #fff; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); padding: 2.5rem; max-width: 480px; text-align: center; }
+  h1 { background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; background-clip: text; color: transparent; margin-top: 0; }
+  .webhook { font-family: monospace; background: #f3f4f6; padding: 0.6rem 0.8rem; border-radius: 8px; word-break: break-all; margin: 1rem 0; font-size: 0.85rem; }
+  a.btn { display: inline-block; margin-top: 1rem; background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; padding: 0.7rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 600; }
+</style></head>
+<body>
+  <div class="card">
+    <h1>You're all set!</h1>
+    <p>Welcome to LeadQualify AI on the <strong>${escapeHtmlServer(planName || 'selected')}</strong> plan.</p>
+    <p>Your unique webhook URL — point your CRM/lead forms at this to start classifying leads automatically:</p>
+    <div class="webhook">${escapeHtmlServer(webhookUrl)}</div>
+    <p>Finish setting your ICP criteria and qualifying questions from the dashboard.</p>
+    <a class="btn" href="/">Go to Dashboard</a>
+  </div>
+</body></html>`;
+}
+
+function escapeHtmlServer(str) {
+  return String(str ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
 }
 
 function parseQualifyingQuestions(input) {
@@ -241,6 +258,82 @@ app.get('/api/customer/:customerId/leads/export', (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(leadsToCsv(leads));
+});
+
+// GET /api/plans — the pricing tiers available to purchase
+app.get('/api/plans', (req, res) => {
+  res.json({ plans: PLANS, billingDemoMode: billing.BILLING_DEMO_MODE });
+});
+
+// POST /api/checkout — buy a plan: provisions the customer record, then starts
+// a Stripe Checkout session (or activates instantly in billing demo mode).
+app.post('/api/checkout', async (req, res) => {
+  const { planId, name, description, icpSize, icpBudget, qualifyingQuestions } = req.body || {};
+
+  const plan = getPlan(planId);
+  if (!plan) {
+    return res.status(400).json({ error: `Invalid planId. Must be one of: ${PLANS.map((p) => p.id).join(', ')}` });
+  }
+  if (!name || !description) {
+    return res.status(400).json({ error: 'name and description are required.' });
+  }
+
+  const customer = store.createCustomer({
+    name,
+    description,
+    icpSize: icpSize || 'Not specified',
+    icpBudget: icpBudget || 'Not specified',
+    qualifyingQuestions: parseQualifyingQuestions(qualifyingQuestions),
+  });
+  store.setCustomerPlan(customer.id, plan.id, billing.BILLING_DEMO_MODE ? 'active' : 'pending_payment');
+
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  try {
+    const { url, demoMode } = await billing.createCheckoutSession({ plan, customerId: customer.id, baseUrl });
+    res.json({ url, demoMode, customerId: customer.id });
+  } catch (err) {
+    console.error(`[checkout] failed to create session for ${customer.id}:`, err.message);
+    res.status(502).json({ error: 'Failed to start checkout.', details: err.message });
+  }
+});
+
+// GET /checkout/success — lands here after payment (or instantly in demo mode)
+app.get('/checkout/success', async (req, res) => {
+  const { demo, customerId, session_id: sessionId } = req.query;
+
+  let customer;
+  if (demo === 'true') {
+    customer = store.getCustomer(customerId);
+  } else if (sessionId) {
+    try {
+      const session = await billing.retrieveSession(sessionId);
+      customer = store.getCustomer(session.client_reference_id);
+      if (customer && (session.payment_status === 'paid' || session.status === 'complete')) {
+        store.setCustomerPlan(customer.id, customer.planId, 'active');
+        store.setStripeIds(customer.id, {
+          stripeCustomerId: session.customer,
+          stripeSubscriptionId: session.subscription,
+        });
+      }
+    } catch (err) {
+      return res.status(400).send(`Could not verify checkout session: ${err.message}`);
+    }
+  }
+
+  if (!customer) {
+    return res.status(404).send('Customer not found for this checkout session.');
+  }
+
+  const plan = getPlan(customer.planId);
+  res.send(successPageHtml({
+    webhookUrl: `${req.protocol}://${req.get('host')}/webhook/${customer.id}`,
+    planName: plan ? plan.name : undefined,
+  }));
+});
+
+// GET /checkout/cancel — user backed out of Stripe Checkout
+app.get('/checkout/cancel', (req, res) => {
+  res.send('<p style="font-family: sans-serif; text-align: center; margin-top: 4rem;">Checkout canceled — no charge was made. <a href="/">Back to LeadQualify AI</a></p>');
 });
 
 // POST /webhook/:customerId — receive and classify a lead

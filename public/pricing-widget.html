@@ -132,6 +132,33 @@
     cursor: pointer;
     text-decoration: none;
   }
+  .cta:disabled { opacity: 0.6; cursor: not-allowed; }
+  .signup-form {
+    max-width: 380px;
+    margin: 1.75rem auto 0;
+    text-align: left;
+  }
+  .signup-form label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #9ca3af;
+    margin: 0.75rem 0 0.3rem;
+  }
+  .signup-form input,
+  .signup-form textarea {
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.05);
+    color: #e5e7eb;
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+  .signup-form textarea { resize: vertical; }
+  .signup-status { margin-top: 0.6rem; font-size: 0.85rem; min-height: 1.2em; }
+  .signup-status.error { color: #ef4444; }
 </style>
 </head>
 <body>
@@ -144,6 +171,11 @@
 </div>
 
 <script>
+  // Point this at your deployed LeadQualify AI server when embedding this widget
+  // on a different domain. Leave as '' if the widget is served from the same
+  // origin as the API (e.g. copied into the app's own /public folder).
+  const API_BASE = '';
+
   // Real product tiers — cheap entry point, the $4,500/mo plan we're actually
   // selling as the target, and an enterprise tier at 10x the target price.
   const TIERS = [
@@ -191,15 +223,23 @@
   ];
 
   let activeId = 'growth'; // default to the plan we're actually selling
+  let signupOpenFor = null; // which tier's signup form is expanded, if any
 
   function formatPrice(n) {
     return '$' + n.toLocaleString('en-US');
+  }
+
+  function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
   }
 
   function render() {
     const tabsEl = document.getElementById('tabs');
     const spotlightEl = document.getElementById('spotlight');
     const active = TIERS.find((t) => t.id === activeId);
+    const formOpen = signupOpenFor === active.id;
 
     tabsEl.innerHTML = TIERS.map((t) => `
       <button type="button" class="tab ${t.id === activeId ? 'active' : ''}" data-id="${t.id}">
@@ -216,15 +256,62 @@
       <ul class="features">
         ${active.features.map((f) => `<li>${f}</li>`).join('')}
       </ul>
-      <a class="cta" href="mailto:rohanadams352@gmail.com?subject=LeadQualify%20AI%20-%20${encodeURIComponent(active.name)}%20plan">Get Started</a>
+      <button type="button" class="cta" id="get-started-btn">${formOpen ? 'Cancel' : 'Get Started'}</button>
+      ${formOpen ? `
+        <form class="signup-form" id="signup-form">
+          <label>Company Name</label>
+          <input type="text" name="name" required placeholder="e.g. Acme Growth Agency" />
+          <label>What you do</label>
+          <textarea name="description" rows="2" required placeholder="e.g. Full-service digital marketing agency"></textarea>
+          <button type="submit" class="cta">Continue to Checkout — ${formatPrice(active.price)}/mo</button>
+          <div class="signup-status" id="signup-status"></div>
+        </form>
+      ` : ''}
     `;
 
     tabsEl.querySelectorAll('.tab').forEach((btn) => {
       btn.addEventListener('click', () => {
         activeId = btn.dataset.id;
+        signupOpenFor = null;
         render();
       });
     });
+
+    document.getElementById('get-started-btn').addEventListener('click', () => {
+      signupOpenFor = formOpen ? null : active.id;
+      render();
+    });
+
+    const form = document.getElementById('signup-form');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const statusEl = document.getElementById('signup-status');
+        const submitBtn = form.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        statusEl.textContent = 'Starting checkout...';
+        statusEl.className = 'signup-status';
+
+        try {
+          const res = await fetch(`${API_BASE}/api/checkout`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              planId: active.id,
+              name: form.name.value.trim(),
+              description: form.description.value.trim(),
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || `Checkout failed (${res.status})`);
+          window.location.href = data.url;
+        } catch (err) {
+          statusEl.textContent = escapeHtml(err.message) + (API_BASE === '' ? ' — set API_BASE at the top of this file if the API is on a different domain.' : '');
+          statusEl.className = 'signup-status error';
+          submitBtn.disabled = false;
+        }
+      });
+    }
   }
 
   render();
