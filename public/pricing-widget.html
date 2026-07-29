@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LeadQualify AI — Pricing</title>
+<style>
+  :root {
+    --primary: #667eea;
+    --secondary: #764ba2;
+    --bg: #05050a;
+    --panel: #111827;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 3rem 1.5rem;
+    background: radial-gradient(circle at 50% 0%, #14142a 0%, var(--bg) 60%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #e5e7eb;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 {
+    text-align: center;
+    font-size: 2rem;
+    margin: 0 0 0.5rem;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .subhead {
+    text-align: center;
+    color: #9ca3af;
+    margin-bottom: 2rem;
+    font-size: 0.95rem;
+  }
+  .tabs {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+  .tab {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #e5e7eb;
+    padding: 0.6rem 1.3rem;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .tab:hover { border-color: var(--primary); }
+  .tab.active {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+  }
+  .spotlight {
+    position: relative;
+    background: linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.01));
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 18px;
+    padding: 2.5rem 2rem;
+    text-align: center;
+    backdrop-filter: blur(6px);
+  }
+  .spotlight.is-target {
+    border: 1px solid var(--primary);
+    box-shadow: 0 0 40px rgba(118, 75, 162, 0.35);
+  }
+  .flag {
+    display: inline-block;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    margin-bottom: 1rem;
+  }
+  .tier-name { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.25rem; }
+  .tier-price {
+    font-size: 3rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    line-height: 1.1;
+  }
+  .tier-price span { font-size: 1rem; color: #9ca3af; -webkit-text-fill-color: #9ca3af; }
+  .tier-tagline { color: #9ca3af; margin: 0.75rem 0 1.75rem; font-size: 0.95rem; }
+  .features {
+    list-style: none;
+    padding: 0;
+    margin: 0 auto;
+    max-width: 420px;
+    text-align: left;
+    display: grid;
+    gap: 0.65rem;
+  }
+  .features li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    font-size: 0.92rem;
+    color: #d1d5db;
+  }
+  .features li::before {
+    content: "✓";
+    color: var(--primary);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .cta {
+    display: inline-block;
+    margin-top: 2rem;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+    border: none;
+    padding: 0.8rem 2.2rem;
+    border-radius: 999px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Pricing</h1>
+  <p class="subhead">AI-powered lead qualification for digital marketing agencies</p>
+
+  <div class="tabs" id="tabs"></div>
+  <div class="spotlight" id="spotlight"></div>
+</div>
+
+<script>
+  // Real product tiers — cheap entry point, the $4,500/mo plan we're actually
+  // selling as the target, and an enterprise tier at 10x the target price.
+  const TIERS = [
+    {
+      id: 'starter',
+      name: 'Starter',
+      price: 1500,
+      tagline: 'For agencies just getting started with automated lead qualification',
+      features: [
+        'Up to 200 classified leads/month',
+        'HOT / WARM / COLD classification',
+        'Real-time dashboard & stats',
+        '1 webhook, standard qualifying questions template',
+        'Email support (48-hour response)',
+      ],
+    },
+    {
+      id: 'growth',
+      name: 'Growth',
+      price: 4500,
+      target: true,
+      tagline: 'Our target plan — built for growing agencies with high lead flow',
+      features: [
+        'Unlimited classified leads',
+        'Full dashboard: live metrics, lead log, CSV export',
+        'Fully customizable ICP & qualifying questions',
+        'Edit/manage customer profiles, in-browser lead testing',
+        'Priority email + chat support (same-day response)',
+      ],
+    },
+    {
+      id: 'enterprise',
+      name: 'Enterprise',
+      price: 45000,
+      tagline: 'For agency networks, franchises, and holding companies running multiple brands at scale',
+      features: [
+        'Everything in Growth, across unlimited sub-brands/webhooks',
+        'Dedicated account manager & onboarding',
+        'Custom-tuned classification criteria per brand',
+        'White-label dashboard (your branding, not ours)',
+        'API access for direct CRM/telephony integration',
+        'SLA-backed uptime & dedicated infrastructure',
+      ],
+    },
+  ];
+
+  let activeId = 'growth'; // default to the plan we're actually selling
+
+  function formatPrice(n) {
+    return '$' + n.toLocaleString('en-US');
+  }
+
+  function render() {
+    const tabsEl = document.getElementById('tabs');
+    const spotlightEl = document.getElementById('spotlight');
+    const active = TIERS.find((t) => t.id === activeId);
+
+    tabsEl.innerHTML = TIERS.map((t) => `
+      <button type="button" class="tab ${t.id === activeId ? 'active' : ''}" data-id="${t.id}">
+        ${t.name} — ${formatPrice(t.price)}/mo
+      </button>
+    `).join('');
+
+    spotlightEl.className = `spotlight ${active.target ? 'is-target' : ''}`;
+    spotlightEl.innerHTML = `
+      ${active.target ? '<div class="flag">Target Plan</div>' : ''}
+      <div class="tier-name">${active.name}</div>
+      <div class="tier-price">${formatPrice(active.price)}<span>/month</span></div>
+      <div class="tier-tagline">${active.tagline}</div>
+      <ul class="features">
+        ${active.features.map((f) => `<li>${f}</li>`).join('')}
+      </ul>
+      <a class="cta" href="mailto:rohanadams352@gmail.com?subject=LeadQualify%20AI%20-%20${encodeURIComponent(active.name)}%20plan">Get Started</a>
+    `;
+
+    tabsEl.querySelectorAll('.tab').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        activeId = btn.dataset.id;
+        render();
+      });
+    });
+  }
+
+  render();
+</script>
+</body>
+</html>
