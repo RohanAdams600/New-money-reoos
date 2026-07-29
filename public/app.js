@@ -39,6 +39,20 @@ async function loadStats() {
   }
 }
 
+function renderPricingTier(tier) {
+  return `
+    <div class="pricing-tier ${tier.featured ? 'featured' : ''}">
+      ${tier.featured ? '<div class="tier-flag">Target Plan</div>' : ''}
+      <div class="tier-name">${escapeHtml(tier.name)}</div>
+      <div class="tier-price">${escapeHtml(tier.priceFormatted)}</div>
+      <div class="tier-tagline">${escapeHtml(tier.tagline)}</div>
+      <ul class="tier-features">
+        ${tier.features.map((f) => `<li>${escapeHtml(f)}</li>`).join('')}
+      </ul>
+    </div>
+  `;
+}
+
 async function loadBusinessInfo() {
   try {
     const info = await fetchJson('/api/business-info');
@@ -48,10 +62,14 @@ async function loadBusinessInfo() {
       <div><dt>Website</dt><dd>${escapeHtml(info.website)}</dd></div>
       <div><dt>Contact</dt><dd>${escapeHtml(info.email)}</dd></div>
       <div><dt>Target Customer</dt><dd>${escapeHtml(info.targetCustomer)}</dd></div>
-      <div><dt>Price</dt><dd>${escapeHtml(info.priceFormatted)}</dd></div>
       <div style="grid-column:1/-1"><dt>Description</dt><dd>${escapeHtml(info.description)}</dd></div>
       <div style="grid-column:1/-1"><dt>Pain Point Solved</dt><dd>${escapeHtml(info.painPoint)}</dd></div>
     `;
+
+    const pricingEl = document.getElementById('pricing-tiers');
+    if (pricingEl && Array.isArray(info.pricingTiers)) {
+      pricingEl.innerHTML = info.pricingTiers.map(renderPricingTier).join('');
+    }
   } catch (err) {
     console.error('Failed to load business info:', err);
   }

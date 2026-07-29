@@ -348,6 +348,69 @@
     color: #6b7280;
     margin-top: 0.25rem;
   }
+
+  .pricing-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    align-items: stretch;
+  }
+
+  .pricing-tier {
+    position: relative;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .pricing-tier.featured {
+    border: 2px solid var(--primary);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.18);
+  }
+
+  .tier-flag {
+    position: absolute;
+    top: -0.7rem;
+    left: 1rem;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+  }
+
+  .tier-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+
+  .tier-price {
+    font-size: 1.6rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    margin: 0.2rem 0 0.5rem;
+  }
+
+  .tier-tagline {
+    font-size: 0.85rem;
+    color: #6b7280;
+    margin-bottom: 0.8rem;
+  }
+
+  .tier-features {
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
 </style>
 </head>
 <body>
@@ -444,6 +507,13 @@
     <dl class="business-grid" id="business-info">
       <div class="empty-state">Loading...</div>
     </dl>
+  </section>
+
+  <section class="card">
+    <h2>Pricing</h2>
+    <div class="pricing-grid" id="pricing-tiers">
+      <div class="empty-state">Loading...</div>
+    </div>
   </section>
 </main>
 
