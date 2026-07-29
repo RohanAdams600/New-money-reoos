@@ -47,6 +47,22 @@
     padding: 1.5rem;
   }
 
+  .demo-banner {
+    background: color-mix(in srgb, var(--warm) 15%, white);
+    border: 1px solid var(--warm);
+    color: #92400e;
+    border-radius: 10px;
+    padding: 0.8rem 1rem;
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .demo-banner code {
+    background: rgba(0, 0, 0, 0.06);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+  }
+
   .metrics {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -244,6 +260,10 @@
 </header>
 
 <main>
+  <div class="demo-banner" id="demo-banner" style="display:none">
+    ⚠️ <strong>Demo mode</strong> — classifications are coming from a free rule-based mock, not Claude. Add a real <code>ANTHROPIC_API_KEY</code> to <code>.env</code> and restart the server to switch to live AI classification.
+  </div>
+
   <div class="metrics" id="metrics">
     <div class="metric-card">
       <div class="value" id="metric-customers">0</div>

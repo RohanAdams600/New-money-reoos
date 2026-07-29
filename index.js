@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 
 const store = require('./lib/store');
-const { classifyLead, MODEL } = require('./lib/claudeService');
+const { classifyLead, MODEL, DEMO_MODE } = require('./lib/claudeService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -59,7 +59,18 @@ app.get('/', (req, res) => {
 
 // GET /health — health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', model: MODEL, uptime: process.uptime(), timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    model: MODEL,
+    demoMode: DEMO_MODE,
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// GET /api/config — flags the dashboard needs (e.g. whether demo mode is active)
+app.get('/api/config', (req, res) => {
+  res.json({ demoMode: DEMO_MODE, model: MODEL });
 });
 
 // GET /api/business-info — business details for the dashboard

@@ -17,6 +17,15 @@ async function fetchJson(url, options) {
   return data;
 }
 
+async function loadConfig() {
+  try {
+    const config = await fetchJson('/api/config');
+    document.getElementById('demo-banner').style.display = config.demoMode ? 'block' : 'none';
+  } catch (err) {
+    console.error('Failed to load config:', err);
+  }
+}
+
 async function loadStats() {
   try {
     const stats = await fetchJson('/api/stats');
@@ -175,4 +184,5 @@ document.getElementById('test-submit').addEventListener('click', async (e) => {
 
 refreshAll();
 loadBusinessInfo();
+loadConfig();
 setInterval(refreshAll, 15000);
