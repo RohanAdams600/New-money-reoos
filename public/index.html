@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Jarvis — LeadQualify AI Dashboard</title>
+<title>Night Desk — Jarvis</title>
 <style>
   :root {
     --primary: #667eea;
@@ -349,85 +349,6 @@
     margin-top: 0.25rem;
   }
 
-  .pricing-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 1rem;
-    align-items: stretch;
-  }
-
-  .pricing-tier {
-    position: relative;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 1.25rem;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .pricing-tier.featured {
-    border: 2px solid var(--primary);
-    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.18);
-  }
-
-  .tier-flag {
-    position: absolute;
-    top: -0.7rem;
-    left: 1rem;
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
-    color: #fff;
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-  }
-
-  .tier-name {
-    font-size: 1.1rem;
-    font-weight: 700;
-  }
-
-  .tier-price {
-    font-size: 1.6rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, var(--primary), var(--secondary));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    margin: 0.2rem 0 0.5rem;
-  }
-
-  .tier-tagline {
-    font-size: 0.85rem;
-    color: #6b7280;
-    margin-bottom: 0.8rem;
-  }
-
-  .tier-features {
-    margin: 0;
-    padding-left: 1.1rem;
-    font-size: 0.85rem;
-    line-height: 1.6;
-  }
-
-  .get-started-btn {
-    margin-top: 1.25rem;
-    width: 100%;
-  }
-
-  .pricing-tier .signup-form {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid #e5e7eb;
-    text-align: left;
-  }
-
-  .pricing-tier .signup-form button[type="submit"] {
-    width: 100%;
-  }
-
   .jarvis-card {
     background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 8%, white), color-mix(in srgb, var(--secondary) 8%, white));
     border: 1px solid color-mix(in srgb, var(--primary) 25%, white);
@@ -525,13 +446,49 @@
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
   }
+
+  .gmail-status {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .gmail-dot {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: var(--cold);
+    flex-shrink: 0;
+  }
+
+  .gmail-dot.connected { background: var(--hot); }
+
+  .gmail-status .secondary-btn {
+    background: #f3f4f6;
+    color: var(--text);
+    margin-top: 0;
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .gmail-status a.secondary-btn {
+    text-decoration: none;
+    display: inline-block;
+  }
+
+  .draft-btn {
+    background: #f3f4f6;
+    color: var(--text);
+    margin-top: 0.6rem;
+  }
 </style>
 </head>
 <body>
 
 <header class="hero">
-  <h1>🚀 LeadQualify AI</h1>
-  <p>Lead Qualification for Digital Marketing Agencies</p>
+  <h1>🌙 Night Desk</h1>
+  <p>Run by Jarvis, Rohan's AI operations manager</p>
 </header>
 
 <main>
@@ -558,6 +515,12 @@
         <ul id="jarvis-capabilities"></ul>
       </div>
     </div>
+  </section>
+
+  <section class="card">
+    <h2>Jarvis's Gmail Connection</h2>
+    <div class="hint" id="gmail-hint">Loading…</div>
+    <div class="gmail-status" id="gmail-status" style="margin-top:0.75rem"></div>
   </section>
 
   <section class="card">
@@ -592,13 +555,17 @@
   </div>
 
   <section class="card">
-    <h2>Add New Customer</h2>
+    <h2>Build a New Agent for a Customer</h2>
+    <div class="hint">This is how Jarvis creates a lead-qualification agent for a new customer — fill in what you know, or let Jarvis draft the ICP and qualifying questions for you.</div>
     <form id="customer-form">
       <label for="cust-name">Customer Company Name</label>
       <input type="text" id="cust-name" required placeholder="e.g. Acme Growth Agency" />
 
       <label for="cust-description">What they do</label>
       <textarea id="cust-description" rows="2" required placeholder="e.g. Full-service digital marketing agency for local businesses"></textarea>
+
+      <button type="button" id="draft-agent-btn" class="draft-btn">✨ Let Jarvis Draft the ICP &amp; Questions</button>
+      <div class="form-status" id="draft-agent-status"></div>
 
       <label for="cust-size">ICP Company Size</label>
       <input type="text" id="cust-size" placeholder="e.g. 5-25 people" />
@@ -610,15 +577,15 @@
       <textarea id="cust-questions" rows="4" placeholder="How many employees does your company have?&#10;What's your annual marketing budget?&#10;How many inbound leads do you get per month?&#10;When are you looking to improve lead qualification?"></textarea>
       <div class="hint">These are the questions Claude will naturally weave into its reply to qualify each lead.</div>
 
-      <button type="submit">Add Customer</button>
+      <button type="submit">Build Agent</button>
       <div class="form-status" id="customer-form-status"></div>
     </form>
   </section>
 
   <section class="card">
-    <h2>Active Customers</h2>
+    <h2>Agents Jarvis Has Built</h2>
     <div class="customer-list" id="customer-list">
-      <div class="empty-state">No customers yet — add one above to get a webhook URL.</div>
+      <div class="empty-state">No agents yet — build one above to get a webhook and inbox URL.</div>
     </div>
   </section>
 
@@ -676,17 +643,10 @@
   </section>
 
   <section class="card">
-    <h2>Business Info</h2>
+    <h2>About Night Desk</h2>
     <dl class="business-grid" id="business-info">
       <div class="empty-state">Loading...</div>
     </dl>
-  </section>
-
-  <section class="card">
-    <h2>Pricing</h2>
-    <div class="pricing-grid" id="pricing-tiers">
-      <div class="empty-state">Loading...</div>
-    </div>
   </section>
 </main>
 

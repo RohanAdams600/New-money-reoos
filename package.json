@@ -1,7 +1,7 @@
 {
-  "name": "leadqualify-ai",
+  "name": "night-desk-jarvis",
   "version": "1.0.0",
-  "description": "AI-powered lead qualification platform for digital marketing agencies. Classifies inbound leads as HOT/WARM/COLD in real time using Claude.",
+  "description": "Jarvis — a personal AI agent that watches your Gmail inbox, captures and qualifies leads, drafts replies, and helps you spin up agents for Night Desk's customers.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -12,8 +12,8 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "openai": "^7.1.0",
-    "stripe": "^22.3.2"
+    "googleapis": "^173.0.0",
+    "openai": "^7.1.0"
   },
   "engines": {
     "node": ">=18"

@@ -3,65 +3,50 @@ const express = require('express');
 const path = require('path');
 
 const store = require('./lib/store');
-const { classifyLead, MODEL, DEMO_MODE } = require('./lib/claudeService');
-const { PLANS, getPlan } = require('./lib/plans');
-const billing = require('./lib/billingService');
+const { classifyLead, draftAgentConfig, MODEL, DEMO_MODE } = require('./lib/claudeService');
 const { JARVIS } = require('./lib/jarvis');
 const activityLog = require('./lib/activityLog');
+const gmailService = require('./lib/gmailService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const BUSINESS_INFO = {
-  name: 'LeadQualify AI',
+// Static copy about Night Desk itself, shown on the dashboard.
+const NIGHT_DESK_INFO = {
+  name: 'Night Desk',
   email: 'rohanadams352@gmail.com',
-  website: 'leadqualify.ai',
   description:
-    'We automate lead qualification for agencies using AI—respond to every lead in 60 seconds, qualify automatically, and only show your team the ready-to-buy prospects.',
-  targetCustomer: 'Digital Marketing Agencies (5-25 people)',
-  painPoint:
-    'Wasting 15-20 hours/week filtering low-quality leads while prospects go cold waiting for responses',
-  pricingTiers: PLANS,
+    'Night Desk builds and runs AI agents — like Jarvis — that handle lead intake and ' +
+    'qualification for other businesses, so no inbound lead ever sits unanswered.',
+  targetCustomer: 'Small-to-midsize businesses and agencies with inbound leads and no dedicated intake team',
+  painPoint: 'Leads go cold waiting on a reply, and nobody has time to qualify every inbound message by hand',
 };
 
-// Stripe webhook needs the raw request body for signature verification, so it must
-// be registered with express.raw() BEFORE the global express.json() below — once
-// express.json() runs for a request, the raw body is gone.
-app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res) => {
-  let event;
-  try {
-    event = billing.verifyWebhookEvent(req.body, req.headers['stripe-signature']);
-  } catch (err) {
-    console.error('[stripe/webhook] signature verification failed:', err.message);
-    return res.status(400).send(`Webhook signature verification failed: ${err.message}`);
-  }
-
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const customerId = session.client_reference_id;
-    if (customerId && store.getCustomer(customerId)) {
-      store.setCustomerPlan(customerId, session.metadata?.planId || null, 'active');
-      store.setStripeIds(customerId, {
-        stripeCustomerId: session.customer,
-        stripeSubscriptionId: session.subscription,
-      });
-    }
-  } else if (event.type === 'customer.subscription.deleted') {
-    const subscription = event.data.object;
-    const customer = store.findCustomerByStripeSubscription(subscription.id);
-    if (customer) {
-      store.setCustomerPlan(customer.id, customer.planId, 'canceled');
-    }
-  }
-
-  res.json({ received: true });
-});
+// Night Desk's own "customer" record — the profile Jarvis uses to classify
+// business inquiries that land in Rohan's Gmail. Seeded once at boot; editable
+// afterward via PATCH /api/customer/nightdesk like any other agent profile.
+const NIGHT_DESK_PROFILE_DEFAULTS = {
+  name: NIGHT_DESK_INFO.name,
+  description: NIGHT_DESK_INFO.description,
+  icpSize: 'Any size business with inbound leads and no dedicated intake team',
+  icpBudget: 'Open — Jarvis flags interest, budget gets discussed on a call',
+  qualifyingQuestions: [
+    "What's generating your leads today — website, ads, referrals?",
+    'How are leads currently followed up on, and by whom?',
+    "What's your timeline for getting this automated?",
+  ],
+};
+store.getOrCreateNightDesk(NIGHT_DESK_PROFILE_DEFAULTS);
 
 app.use(express.json());
 // Inbound email parse services (Mailgun/SendGrid-style) post form-encoded bodies,
 // not JSON — needed for the /inbox capture channel below.
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+function baseUrlFor(req) {
+  return `${req.protocol}://${req.get('host')}`;
+}
 
 function serializeCustomer(customer, { includeLeads = false } = {}) {
   const serialized = {
@@ -75,41 +60,11 @@ function serializeCustomer(customer, { includeLeads = false } = {}) {
     webhookUrl: `/webhook/${customer.id}`,
     inboxUrl: `/inbox/${customer.id}`,
     stats: customer.stats,
-    planId: customer.planId,
-    billingStatus: customer.billingStatus,
   };
   if (includeLeads) {
     serialized.leads = customer.leads;
   }
   return serialized;
-}
-
-function successPageHtml({ webhookUrl, planName }) {
-  return `<!doctype html>
-<html lang="en"><head><meta charset="UTF-8" /><title>You're all set — LeadQualify AI</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f9fafb; color: #1f2937; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 1.5rem; }
-  .card { background: #fff; border-radius: 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); padding: 2.5rem; max-width: 480px; text-align: center; }
-  h1 { background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; background-clip: text; color: transparent; margin-top: 0; }
-  .webhook { font-family: monospace; background: #f3f4f6; padding: 0.6rem 0.8rem; border-radius: 8px; word-break: break-all; margin: 1rem 0; font-size: 0.85rem; }
-  a.btn { display: inline-block; margin-top: 1rem; background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; padding: 0.7rem 1.5rem; border-radius: 8px; text-decoration: none; font-weight: 600; }
-</style></head>
-<body>
-  <div class="card">
-    <h1>You're all set!</h1>
-    <p>Welcome to LeadQualify AI on the <strong>${escapeHtmlServer(planName || 'selected')}</strong> plan.</p>
-    <p>Your unique webhook URL — point your CRM/lead forms at this to start classifying leads automatically:</p>
-    <div class="webhook">${escapeHtmlServer(webhookUrl)}</div>
-    <p>Finish setting your ICP criteria and qualifying questions from the dashboard.</p>
-    <a class="btn" href="/">Go to Dashboard</a>
-  </div>
-</body></html>`;
-}
-
-function escapeHtmlServer(str) {
-  return String(str ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
 }
 
 function parseQualifyingQuestions(input) {
@@ -144,7 +99,56 @@ function leadsToCsv(leads) {
   return [header.join(','), ...rows].join('\n');
 }
 
-// GET / — main admin dashboard
+// Runs one Gmail poll cycle: reads unread mail under Jarvis's label, classifies
+// each against Night Desk's own profile, drafts (or sends) a reply, and marks it
+// processed. Shared by the background timer and the manual "Check Inbox Now" button.
+let gmailPollState = { lastPollAt: null, lastError: null, lastCount: 0 };
+
+async function pollGmailInbox(baseUrl) {
+  if (!gmailService.isConnected()) return gmailPollState;
+
+  try {
+    const messages = await gmailService.listLeadMessages(baseUrl);
+    const nightDesk = store.getOrCreateNightDesk(NIGHT_DESK_PROFILE_DEFAULTS);
+
+    for (const msg of messages) {
+      const text = [msg.subject, msg.body].filter(Boolean).join('\n\n').trim();
+      if (!text) {
+        await gmailService.markProcessed(baseUrl, msg.id);
+        continue;
+      }
+
+      const classification = await classifyLead(nightDesk, text);
+      const lead = store.recordLead(nightDesk.id, classification, text, { source: 'email', from: msg.from });
+      activityLog.logCapture({ customer: nightDesk, lead, source: 'email' });
+
+      if (gmailService.AUTO_SEND) {
+        await gmailService.sendReply(baseUrl, msg, classification.response_text);
+        activityLog.log(`📤 Sent a reply to ${msg.from} — auto-send is on.`);
+      } else {
+        await gmailService.createDraftReply(baseUrl, msg, classification.response_text);
+        activityLog.log(`✉️ Drafted a reply to ${msg.from} in Gmail — review and hit send.`);
+      }
+
+      await gmailService.markProcessed(baseUrl, msg.id);
+    }
+
+    gmailPollState = { lastPollAt: new Date().toISOString(), lastError: null, lastCount: messages.length };
+  } catch (err) {
+    console.error('[jarvis:gmail-poll] failed:', err.message);
+    gmailPollState = { lastPollAt: new Date().toISOString(), lastError: err.message, lastCount: 0 };
+  }
+
+  return gmailPollState;
+}
+
+const POLL_MINUTES = Math.max(1, parseInt(process.env.GMAIL_POLL_MINUTES, 10) || 5);
+if (gmailService.isConfigured()) {
+  const pollBaseUrl = process.env.APP_URL || `http://localhost:${PORT}`;
+  setInterval(() => pollGmailInbox(pollBaseUrl), POLL_MINUTES * 60 * 1000);
+}
+
+// GET / — main dashboard
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -165,9 +169,9 @@ app.get('/api/config', (req, res) => {
   res.json({ demoMode: DEMO_MODE, model: MODEL });
 });
 
-// GET /api/business-info — business details for the dashboard
+// GET /api/business-info — static copy about Night Desk for the dashboard
 app.get('/api/business-info', (req, res) => {
-  res.json(BUSINESS_INFO);
+  res.json(NIGHT_DESK_INFO);
 });
 
 // GET /api/jarvis — Jarvis's identity/persona for the dashboard's "Meet Jarvis" panel
@@ -181,17 +185,96 @@ app.get('/api/jarvis/activity', (req, res) => {
   res.json({ activity: activityLog.recent(limit) });
 });
 
-// GET /api/stats — aggregate metrics across every customer
+// POST /api/jarvis/draft-agent — Jarvis drafts a starting ICP + qualifying
+// questions for a new customer from a one-line description.
+app.post('/api/jarvis/draft-agent', async (req, res) => {
+  const description = req.body && req.body.description;
+  if (!description) {
+    return res.status(400).json({ error: 'A "description" field is required.' });
+  }
+
+  try {
+    const draft = await draftAgentConfig(description);
+    res.json(draft);
+  } catch (err) {
+    console.error('[jarvis:draft-agent] failed:', err.message);
+    res.status(502).json({ error: 'Failed to draft agent config.', details: err.message });
+  }
+});
+
+// GET /api/jarvis/gmail — Jarvis's Gmail connection status
+app.get('/api/jarvis/gmail', async (req, res) => {
+  const configured = gmailService.isConfigured();
+  const connected = gmailService.isConnected();
+  let connectedEmail = null;
+  if (connected) {
+    try {
+      connectedEmail = await gmailService.getConnectedEmail(baseUrlFor(req));
+    } catch (err) {
+      console.error('[jarvis:gmail-status] failed to fetch profile:', err.message);
+    }
+  }
+
+  res.json({
+    configured,
+    connected,
+    connectedEmail,
+    label: gmailService.LABEL_NAME,
+    autoSend: gmailService.AUTO_SEND,
+    pollMinutes: POLL_MINUTES,
+    poll: gmailPollState,
+  });
+});
+
+// POST /api/jarvis/gmail/check-now — trigger an immediate poll cycle
+app.post('/api/jarvis/gmail/check-now', async (req, res) => {
+  if (!gmailService.isConnected()) {
+    return res.status(400).json({ error: 'Gmail is not connected yet. Visit /auth/google first.' });
+  }
+  const result = await pollGmailInbox(baseUrlFor(req));
+  res.json(result);
+});
+
+// GET /auth/google — start the OAuth flow
+app.get('/auth/google', (req, res) => {
+  if (!gmailService.isConfigured()) {
+    return res.status(400).send(
+      'GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set. Add them to .env first — see .env.example for setup steps.'
+    );
+  }
+  res.redirect(gmailService.getAuthUrl(baseUrlFor(req)));
+});
+
+// GET /auth/google/callback — OAuth redirect target
+app.get('/auth/google/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error) {
+    return res.status(400).send(`Google OAuth error: ${error}`);
+  }
+  if (!code) {
+    return res.status(400).send('Missing "code" query parameter.');
+  }
+
+  try {
+    await gmailService.handleOAuthCallback(code, baseUrlFor(req));
+    res.redirect('/?gmail=connected');
+  } catch (err) {
+    console.error('[auth/google/callback] token exchange failed:', err.message);
+    res.status(502).send(`Failed to connect Gmail: ${err.message}`);
+  }
+});
+
+// GET /api/stats — aggregate metrics across every agent Jarvis has built
 app.get('/api/stats', (req, res) => {
   res.json(store.getAggregateStats());
 });
 
-// GET /api/customers — list all customers, including lead logs, for the dashboard
+// GET /api/customers — list every customer agent, including lead logs
 app.get('/api/customers', (req, res) => {
   res.json(store.listCustomers().map((c) => serializeCustomer(c, { includeLeads: true })));
 });
 
-// POST /api/customer/create — add a new customer
+// POST /api/customer/create — Jarvis builds a new agent for a customer
 app.post('/api/customer/create', (req, res) => {
   const { name, description, icpSize, icpBudget, qualifyingQuestions } = req.body || {};
 
@@ -210,7 +293,7 @@ app.post('/api/customer/create', (req, res) => {
   res.status(201).json(serializeCustomer(customer));
 });
 
-// GET /api/customer/:customerId/stats — one customer's stats + lead log.
+// GET /api/customer/:customerId/stats — one agent's stats + lead log.
 // Optional ?classification=hot|warm|cold filters the returned lead log.
 app.get('/api/customer/:customerId/stats', (req, res) => {
   const customer = store.getCustomer(req.params.customerId);
@@ -225,7 +308,8 @@ app.get('/api/customer/:customerId/stats', (req, res) => {
   res.json(serialized);
 });
 
-// PATCH /api/customer/:customerId — edit a customer's profile
+// PATCH /api/customer/:customerId — edit an agent's profile (also used for
+// Night Desk's own profile at /api/customer/nightdesk)
 app.patch('/api/customer/:customerId', (req, res) => {
   const customer = store.getCustomer(req.params.customerId);
   if (!customer) {
@@ -251,7 +335,7 @@ app.patch('/api/customer/:customerId', (req, res) => {
   res.json(serializeCustomer(updated));
 });
 
-// DELETE /api/customer/:customerId — remove a customer and its lead history
+// DELETE /api/customer/:customerId — remove an agent and its lead history
 app.delete('/api/customer/:customerId', (req, res) => {
   const deleted = store.deleteCustomer(req.params.customerId);
   if (!deleted) {
@@ -277,82 +361,6 @@ app.get('/api/customer/:customerId/leads/export', (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(leadsToCsv(leads));
-});
-
-// GET /api/plans — the pricing tiers available to purchase
-app.get('/api/plans', (req, res) => {
-  res.json({ plans: PLANS, billingDemoMode: billing.BILLING_DEMO_MODE });
-});
-
-// POST /api/checkout — buy a plan: provisions the customer record, then starts
-// a Stripe Checkout session (or activates instantly in billing demo mode).
-app.post('/api/checkout', async (req, res) => {
-  const { planId, name, description, icpSize, icpBudget, qualifyingQuestions } = req.body || {};
-
-  const plan = getPlan(planId);
-  if (!plan) {
-    return res.status(400).json({ error: `Invalid planId. Must be one of: ${PLANS.map((p) => p.id).join(', ')}` });
-  }
-  if (!name || !description) {
-    return res.status(400).json({ error: 'name and description are required.' });
-  }
-
-  const customer = store.createCustomer({
-    name,
-    description,
-    icpSize: icpSize || 'Not specified',
-    icpBudget: icpBudget || 'Not specified',
-    qualifyingQuestions: parseQualifyingQuestions(qualifyingQuestions),
-  });
-  store.setCustomerPlan(customer.id, plan.id, billing.BILLING_DEMO_MODE ? 'active' : 'pending_payment');
-
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
-  try {
-    const { url, demoMode } = await billing.createCheckoutSession({ plan, customerId: customer.id, baseUrl });
-    res.json({ url, demoMode, customerId: customer.id });
-  } catch (err) {
-    console.error(`[checkout] failed to create session for ${customer.id}:`, err.message);
-    res.status(502).json({ error: 'Failed to start checkout.', details: err.message });
-  }
-});
-
-// GET /checkout/success — lands here after payment (or instantly in demo mode)
-app.get('/checkout/success', async (req, res) => {
-  const { demo, customerId, session_id: sessionId } = req.query;
-
-  let customer;
-  if (demo === 'true') {
-    customer = store.getCustomer(customerId);
-  } else if (sessionId) {
-    try {
-      const session = await billing.retrieveSession(sessionId);
-      customer = store.getCustomer(session.client_reference_id);
-      if (customer && (session.payment_status === 'paid' || session.status === 'complete')) {
-        store.setCustomerPlan(customer.id, customer.planId, 'active');
-        store.setStripeIds(customer.id, {
-          stripeCustomerId: session.customer,
-          stripeSubscriptionId: session.subscription,
-        });
-      }
-    } catch (err) {
-      return res.status(400).send(`Could not verify checkout session: ${err.message}`);
-    }
-  }
-
-  if (!customer) {
-    return res.status(404).send('Customer not found for this checkout session.');
-  }
-
-  const plan = getPlan(customer.planId);
-  res.send(successPageHtml({
-    webhookUrl: `${req.protocol}://${req.get('host')}/webhook/${customer.id}`,
-    planName: plan ? plan.name : undefined,
-  }));
-});
-
-// GET /checkout/cancel — user backed out of Stripe Checkout
-app.get('/checkout/cancel', (req, res) => {
-  res.send('<p style="font-family: sans-serif; text-align: center; margin-top: 4rem;">Checkout canceled — no charge was made. <a href="/">Back to LeadQualify AI</a></p>');
 });
 
 // POST /webhook/:customerId — receive and classify a lead
@@ -442,5 +450,5 @@ app.post('/api/customer/:customerId/test', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 LeadQualify AI running at http://localhost:${PORT}`);
+  console.log(`🤖 Night Desk — Jarvis running at http://localhost:${PORT}`);
 });

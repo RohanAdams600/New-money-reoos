@@ -77,102 +77,96 @@ async function loadStats() {
   }
 }
 
-// Tracks whether a plan's "get started" signup form is expanded.
-const pricingUiState = {};
-
-function renderPricingTier(tier) {
-  const formOpen = !!pricingUiState[tier.id];
-  return `
-    <div class="pricing-tier ${tier.featured ? 'featured' : ''}">
-      ${tier.featured ? '<div class="tier-flag">Target Plan</div>' : ''}
-      <div class="tier-name">${escapeHtml(tier.name)}</div>
-      <div class="tier-price">${escapeHtml(tier.priceFormatted)}</div>
-      <div class="tier-tagline">${escapeHtml(tier.tagline)}</div>
-      <ul class="tier-features">
-        ${tier.features.map((f) => `<li>${escapeHtml(f)}</li>`).join('')}
-      </ul>
-      <button type="button" class="get-started-btn" data-plan="${tier.id}">
-        ${formOpen ? 'Cancel' : 'Get Started'}
-      </button>
-      ${formOpen ? `
-        <form class="signup-form" data-plan="${tier.id}">
-          <label>Company Name</label>
-          <input type="text" name="name" required placeholder="e.g. Acme Growth Agency" />
-          <label>What you do</label>
-          <textarea name="description" rows="2" required placeholder="e.g. Full-service digital marketing agency"></textarea>
-          <label>ICP Company Size (optional)</label>
-          <input type="text" name="icpSize" placeholder="e.g. 5-25 people" />
-          <label>ICP Annual Budget (optional)</label>
-          <input type="text" name="icpBudget" placeholder="e.g. $50k-$200k" />
-          <button type="submit">Continue to Checkout — ${escapeHtml(tier.priceFormatted)}</button>
-          <div class="form-status" data-role="signup-status"></div>
-        </form>
-      ` : ''}
-    </div>
-  `;
-}
-
 async function loadBusinessInfo() {
   try {
     const info = await fetchJson('/api/business-info');
     const dl = document.getElementById('business-info');
     dl.innerHTML = `
       <div><dt>Company</dt><dd>${escapeHtml(info.name)}</dd></div>
-      <div><dt>Website</dt><dd>${escapeHtml(info.website)}</dd></div>
       <div><dt>Contact</dt><dd>${escapeHtml(info.email)}</dd></div>
       <div><dt>Target Customer</dt><dd>${escapeHtml(info.targetCustomer)}</dd></div>
       <div style="grid-column:1/-1"><dt>Description</dt><dd>${escapeHtml(info.description)}</dd></div>
       <div style="grid-column:1/-1"><dt>Pain Point Solved</dt><dd>${escapeHtml(info.painPoint)}</dd></div>
     `;
-
-    const pricingEl = document.getElementById('pricing-tiers');
-    if (pricingEl && Array.isArray(info.pricingTiers)) {
-      pricingEl.innerHTML = info.pricingTiers.map(renderPricingTier).join('');
-    }
   } catch (err) {
     console.error('Failed to load business info:', err);
   }
 }
 
-document.getElementById('pricing-tiers').addEventListener('click', (e) => {
-  const btn = e.target.closest('.get-started-btn');
-  if (!btn) return;
-  const planId = btn.dataset.plan;
-  pricingUiState[planId] = !pricingUiState[planId];
-  loadBusinessInfo();
-});
+async function loadGmailStatus() {
+  try {
+    const status = await fetchJson('/api/jarvis/gmail');
+    const hint = document.getElementById('gmail-hint');
+    const statusEl = document.getElementById('gmail-status');
 
-document.getElementById('pricing-tiers').addEventListener('submit', async (e) => {
-  const form = e.target.closest('.signup-form');
-  if (!form) return;
-  e.preventDefault();
+    if (!status.configured) {
+      hint.textContent = 'Not set up yet — add GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET to .env (see .env.example for the step-by-step) before connecting.';
+      statusEl.innerHTML = '';
+      return;
+    }
 
-  const planId = form.dataset.plan;
-  const statusEl = form.querySelector('[data-role="signup-status"]');
-  const submitBtn = form.querySelector('button[type="submit"]');
-  const payload = {
-    planId,
-    name: form.name.value.trim(),
-    description: form.description.value.trim(),
-    icpSize: form.icpSize.value.trim(),
-    icpBudget: form.icpBudget.value.trim(),
-  };
+    if (!status.connected) {
+      hint.textContent = `Jarvis isn't watching your inbox yet. Connect Gmail, then create a "${escapeHtml(status.label)}" label + filter in Gmail for whatever should count as a lead.`;
+      statusEl.innerHTML = `<a class="secondary-btn" href="/auth/google">Connect Gmail</a>`;
+      return;
+    }
 
-  submitBtn.disabled = true;
-  statusEl.textContent = 'Starting checkout...';
-  statusEl.className = 'form-status';
+    const lastPoll = status.poll.lastPollAt ? timeAgo(status.poll.lastPollAt) : 'not yet';
+    hint.innerHTML = `Connected as <strong>${escapeHtml(status.connectedEmail || 'unknown')}</strong> — watching the "${escapeHtml(status.label)}" label every ${status.pollMinutes}m. ${status.autoSend ? '<strong>Auto-send is ON</strong> — replies go out with no review.' : 'Replies are drafted for you to review and send.'}`;
+    statusEl.innerHTML = `
+      <span class="gmail-dot connected"></span>
+      <span>Last checked: ${lastPoll}${status.poll.lastCount ? ` (${status.poll.lastCount} email${status.poll.lastCount === 1 ? '' : 's'})` : ''}</span>
+      <button type="button" class="secondary-btn" id="gmail-check-now">Check Inbox Now</button>
+      ${status.poll.lastError ? `<span style="color:var(--cold)">Last error: ${escapeHtml(status.poll.lastError)}</span>` : ''}
+    `;
+
+    document.getElementById('gmail-check-now')?.addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = 'Checking...';
+      try {
+        await fetchJson('/api/jarvis/gmail/check-now', { method: 'POST' });
+      } catch (err) {
+        alert(err.message);
+      }
+      loadGmailStatus();
+      loadActivity();
+    });
+  } catch (err) {
+    console.error('Failed to load Gmail status:', err);
+  }
+}
+
+document.getElementById('draft-agent-btn').addEventListener('click', async () => {
+  const status = document.getElementById('draft-agent-status');
+  const description = document.getElementById('cust-description').value.trim();
+
+  if (!description) {
+    status.textContent = 'Describe what the customer does first.';
+    status.className = 'form-status error';
+    return;
+  }
+
+  const btn = document.getElementById('draft-agent-btn');
+  btn.disabled = true;
+  status.textContent = 'Jarvis is drafting it...';
+  status.className = 'form-status';
 
   try {
-    const data = await fetchJson('/api/checkout', {
+    const draft = await fetchJson('/api/jarvis/draft-agent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ description }),
     });
-    window.location.href = data.url;
+    document.getElementById('cust-size').value = draft.icp_size || '';
+    document.getElementById('cust-budget').value = draft.icp_budget || '';
+    document.getElementById('cust-questions').value = (draft.qualifying_questions || []).join('\n');
+    status.textContent = 'Drafted — review and adjust before building.';
+    status.className = 'form-status success';
   } catch (err) {
-    statusEl.textContent = err.message;
-    statusEl.className = 'form-status error';
-    submitBtn.disabled = false;
+    status.textContent = err.message;
+    status.className = 'form-status error';
+  } finally {
+    btn.disabled = false;
   }
 });
 
@@ -285,7 +279,7 @@ async function loadCustomers({ force = false } = {}) {
     const list = document.getElementById('customer-list');
     list.innerHTML = customers.length
       ? customers.map(renderCustomerCard).join('')
-      : '<div class="empty-state">No customers yet — add one above to get a webhook URL.</div>';
+      : '<div class="empty-state">No agents yet — build one above to get a webhook and inbox URL.</div>';
 
     for (const selectId of ['test-customer', 'inbox-customer']) {
       const select = document.getElementById(selectId);
@@ -339,7 +333,7 @@ document.getElementById('customer-list').addEventListener('click', async (e) => 
   const deleteBtn = e.target.closest('.delete-customer');
   if (deleteBtn) {
     const id = deleteBtn.dataset.id;
-    if (!confirm('Delete this customer and all of their lead history? This cannot be undone.')) {
+    if (!confirm('Delete this agent and all of its lead history? This cannot be undone.')) {
       return;
     }
     try {
@@ -388,6 +382,7 @@ function refreshAll(options = {}) {
   loadStats();
   loadCustomers(options);
   loadActivity();
+  loadGmailStatus();
 }
 
 document.getElementById('customer-form').addEventListener('submit', async (e) => {
@@ -410,7 +405,7 @@ document.getElementById('customer-form').addEventListener('submit', async (e) =>
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    status.textContent = `Customer created. Webhook: ${window.location.origin}${customer.webhookUrl}`;
+    status.textContent = `Agent built. Webhook: ${window.location.origin}${customer.webhookUrl}`;
     status.className = 'form-status success';
     e.target.reset();
     refreshAll({ force: true });
