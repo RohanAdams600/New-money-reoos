@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LeadQualify AI — Dashboard</title>
+<style>
+  :root {
+    --primary: #667eea;
+    --secondary: #764ba2;
+    --hot: #10b981;
+    --warm: #f59e0b;
+    --cold: #ef4444;
+    --text: #1f2937;
+    --background: #f9fafb;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--background);
+    color: var(--text);
+  }
+
+  header.hero {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+    padding: 2.5rem 1.5rem;
+    text-align: center;
+  }
+
+  header.hero h1 {
+    margin: 0 0 0.4rem;
+    font-size: 2rem;
+  }
+
+  header.hero p {
+    margin: 0;
+    opacity: 0.9;
+  }
+
+  main {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 1.5rem;
+  }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+    margin: -2.5rem 0 2rem;
+  }
+
+  .metric-card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+    padding: 1.25rem;
+    text-align: center;
+  }
+
+  .metric-card .value {
+    font-size: 1.8rem;
+    font-weight: 700;
+  }
+
+  .metric-card .label {
+    font-size: 0.85rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+  }
+
+  .metric-card.hot .value { color: var(--hot); }
+  .metric-card.warm .value { color: var(--warm); }
+  .metric-card.cold .value { color: var(--cold); }
+
+  section.card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  section.card h2 {
+    margin-top: 0;
+    font-size: 1.25rem;
+  }
+
+  label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin: 0.9rem 0 0.3rem;
+  }
+
+  input[type="text"],
+  input[type="number"],
+  textarea,
+  select {
+    width: 100%;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-family: inherit;
+  }
+
+  textarea { resize: vertical; }
+
+  button {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+    border: none;
+    padding: 0.7rem 1.4rem;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 1rem;
+  }
+
+  button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .form-status {
+    margin-top: 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  .form-status.error { color: var(--cold); }
+  .form-status.success { color: var(--hot); }
+
+  .customer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .customer-item {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1rem;
+  }
+
+  .customer-item .customer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .customer-item h3 {
+    margin: 0;
+    font-size: 1.05rem;
+  }
+
+  .customer-item .webhook {
+    font-family: monospace;
+    font-size: 0.8rem;
+    background: #f3f4f6;
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    word-break: break-all;
+  }
+
+  .lead-breakdown {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.6rem;
+    font-size: 0.85rem;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+  }
+
+  .badge.hot { background: color-mix(in srgb, var(--hot) 15%, white); color: var(--hot); }
+  .badge.warm { background: color-mix(in srgb, var(--warm) 15%, white); color: var(--warm); }
+  .badge.cold { background: color-mix(in srgb, var(--cold) 15%, white); color: var(--cold); }
+
+  .empty-state {
+    color: #6b7280;
+    font-size: 0.9rem;
+    font-style: italic;
+  }
+
+  .test-result {
+    margin-top: 1rem;
+    padding: 1rem;
+    border-radius: 10px;
+    background: #f3f4f6;
+    display: none;
+  }
+
+  .test-result.visible { display: block; }
+
+  .test-result .response-text {
+    margin-top: 0.5rem;
+    font-style: italic;
+  }
+
+  .business-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.9rem;
+  }
+
+  .business-grid dt {
+    font-size: 0.8rem;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .business-grid dd {
+    margin: 0.15rem 0 0;
+    font-size: 0.95rem;
+  }
+
+  .hint {
+    font-size: 0.8rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <h1>🚀 LeadQualify AI</h1>
+  <p>Lead Qualification for Digital Marketing Agencies</p>
+</header>
+
+<main>
+  <div class="metrics" id="metrics">
+    <div class="metric-card">
+      <div class="value" id="metric-customers">0</div>
+      <div class="label">Active Customers</div>
+    </div>
+    <div class="metric-card">
+      <div class="value" id="metric-total-leads">0</div>
+      <div class="label">Total Leads Processed</div>
+    </div>
+    <div class="metric-card hot">
+      <div class="value" id="metric-hot">0</div>
+      <div class="label">🔥 Hot Leads</div>
+    </div>
+    <div class="metric-card warm">
+      <div class="value" id="metric-warm">0</div>
+      <div class="label">⚡ Warm Leads</div>
+    </div>
+    <div class="metric-card cold">
+      <div class="value" id="metric-cold">0</div>
+      <div class="label">❄️ Cold Leads</div>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2>Add New Customer</h2>
+    <form id="customer-form">
+      <label for="cust-name">Customer Company Name</label>
+      <input type="text" id="cust-name" required placeholder="e.g. Acme Growth Agency" />
+
+      <label for="cust-description">What they do</label>
+      <textarea id="cust-description" rows="2" required placeholder="e.g. Full-service digital marketing agency for local businesses"></textarea>
+
+      <label for="cust-size">ICP Company Size</label>
+      <input type="text" id="cust-size" placeholder="e.g. 5-25 people" />
+
+      <label for="cust-budget">ICP Annual Budget</label>
+      <input type="text" id="cust-budget" placeholder="e.g. $50k-$200k" />
+
+      <label for="cust-questions">Qualifying Questions (one per line)</label>
+      <textarea id="cust-questions" rows="4" placeholder="How many employees does your company have?&#10;What's your annual marketing budget?&#10;How many inbound leads do you get per month?&#10;When are you looking to improve lead qualification?"></textarea>
+      <div class="hint">These are the questions Claude will naturally weave into its reply to qualify each lead.</div>
+
+      <button type="submit">Add Customer</button>
+      <div class="form-status" id="customer-form-status"></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Active Customers</h2>
+    <div class="customer-list" id="customer-list">
+      <div class="empty-state">No customers yet — add one above to get a webhook URL.</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Test Lead Qualification</h2>
+    <label for="test-customer">Customer</label>
+    <select id="test-customer">
+      <option value="">Add a customer first</option>
+    </select>
+
+    <label for="test-message">Paste a test lead message</label>
+    <textarea id="test-message" rows="4" placeholder="e.g. Hi, we're a 15-person agency looking to automate lead intake. We have budget approved for Q1 and want to move fast."></textarea>
+
+    <button type="submit" id="test-submit">Classify Test Lead</button>
+    <div class="form-status" id="test-form-status"></div>
+
+    <div class="test-result" id="test-result">
+      <span class="badge" id="test-badge">—</span>
+      <span id="test-confidence"></span>
+      <div><strong>Company:</strong> <span id="test-company"></span></div>
+      <div><strong>Problem:</strong> <span id="test-problem"></span></div>
+      <div><strong>Budget signal:</strong> <span id="test-budget"></span></div>
+      <div class="response-text" id="test-response"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Business Info</h2>
+    <dl class="business-grid" id="business-info">
+      <div class="empty-state">Loading...</div>
+    </dl>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

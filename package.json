@@ -1,0 +1,20 @@
+{
+  "name": "leadqualify-ai",
+  "version": "1.0.0",
+  "description": "AI-powered lead qualification platform for digital marketing agencies. Classifies inbound leads as HOT/WARM/COLD in real time using Claude.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
