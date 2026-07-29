@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>LeadQualify AI — Dashboard</title>
+<title>Jarvis — LeadQualify AI Dashboard</title>
 <style>
   :root {
     --primary: #667eea;
@@ -427,6 +427,104 @@
   .pricing-tier .signup-form button[type="submit"] {
     width: 100%;
   }
+
+  .jarvis-card {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 8%, white), color-mix(in srgb, var(--secondary) 8%, white));
+    border: 1px solid color-mix(in srgb, var(--primary) 25%, white);
+  }
+
+  .jarvis-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .jarvis-avatar {
+    font-size: 2.6rem;
+    background: #fff;
+    border-radius: 50%;
+    width: 4rem;
+    height: 4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+  }
+
+  .jarvis-header h2 {
+    margin: 0;
+    font-size: 1.4rem;
+  }
+
+  .jarvis-tagline {
+    font-style: italic;
+    color: #4b5563;
+  }
+
+  .jarvis-bio {
+    margin: 1rem 0;
+    line-height: 1.5;
+  }
+
+  .jarvis-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .jarvis-columns h3 {
+    margin: 0 0 0.4rem;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #6b7280;
+  }
+
+  .jarvis-columns ul {
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
+  .activity-feed {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+
+  .activity-feed li {
+    background: #f9fafb;
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.88rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .activity-feed .activity-time {
+    color: #9ca3af;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .lead-source {
+    display: inline-block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: #6b7280;
+    background: #f3f4f6;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+  }
 </style>
 </head>
 <body>
@@ -440,6 +538,35 @@
   <div class="demo-banner" id="demo-banner" style="display:none">
     ⚠️ <strong>Demo mode</strong> — classifications are coming from a free rule-based mock, not Claude. Add a real <code>ANTHROPIC_API_KEY</code> to <code>.env</code> and restart the server to switch to live AI classification.
   </div>
+
+  <section class="card jarvis-card" id="jarvis-card">
+    <div class="jarvis-header">
+      <div class="jarvis-avatar" id="jarvis-avatar">🤖</div>
+      <div>
+        <h2 id="jarvis-name">Jarvis</h2>
+        <div class="jarvis-tagline" id="jarvis-tagline">Loading…</div>
+      </div>
+    </div>
+    <p class="jarvis-bio" id="jarvis-bio"></p>
+    <div class="jarvis-columns">
+      <div>
+        <h3>Personality</h3>
+        <ul id="jarvis-personality"></ul>
+      </div>
+      <div>
+        <h3>What he does</h3>
+        <ul id="jarvis-capabilities"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Jarvis's Activity Feed</h2>
+    <div class="hint">Live log of every lead Jarvis has captured and classified, in his own words. Refreshes automatically.</div>
+    <ul class="activity-feed" id="activity-feed">
+      <li class="empty-state">No activity yet — Jarvis is watching, but nothing's come in.</li>
+    </ul>
+  </section>
 
   <div class="metrics" id="metrics">
     <div class="metric-card">
@@ -515,6 +642,36 @@
       <div><strong>Problem:</strong> <span id="test-problem"></span></div>
       <div><strong>Budget signal:</strong> <span id="test-budget"></span></div>
       <div class="response-text" id="test-response"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Simulate Inbox Capture</h2>
+    <div class="hint">Paste in a fake forwarded email and send it to Jarvis's inbox channel — the same endpoint you'd point Mailgun/SendGrid/Zapier's "new email" trigger at (<code>POST /inbox/:customerId</code>).</div>
+    <label for="inbox-customer">Customer</label>
+    <select id="inbox-customer">
+      <option value="">Add a customer first</option>
+    </select>
+
+    <label for="inbox-from">From (sender email)</label>
+    <input type="text" id="inbox-from" placeholder="e.g. jane@prospect-agency.com" />
+
+    <label for="inbox-subject">Subject</label>
+    <input type="text" id="inbox-subject" placeholder="e.g. Re: your lead qualification tool" />
+
+    <label for="inbox-body">Email Body</label>
+    <textarea id="inbox-body" rows="4" placeholder="e.g. Hi, we're a 15-person agency looking to automate lead intake. We have budget approved for Q1 and want to move fast."></textarea>
+
+    <button type="button" id="inbox-submit">Send to Jarvis's Inbox</button>
+    <div class="form-status" id="inbox-form-status"></div>
+
+    <div class="test-result" id="inbox-result">
+      <span class="badge" id="inbox-badge">—</span>
+      <span id="inbox-confidence"></span>
+      <div><strong>Company:</strong> <span id="inbox-company"></span></div>
+      <div><strong>Problem:</strong> <span id="inbox-problem"></span></div>
+      <div><strong>Budget signal:</strong> <span id="inbox-budget"></span></div>
+      <div class="response-text" id="inbox-response"></div>
     </div>
   </section>
 

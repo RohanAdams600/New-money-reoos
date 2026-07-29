@@ -6,6 +6,8 @@ const store = require('./lib/store');
 const { classifyLead, MODEL, DEMO_MODE } = require('./lib/claudeService');
 const { PLANS, getPlan } = require('./lib/plans');
 const billing = require('./lib/billingService');
+const { JARVIS } = require('./lib/jarvis');
+const activityLog = require('./lib/activityLog');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +58,9 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), (req, res
 });
 
 app.use(express.json());
+// Inbound email parse services (Mailgun/SendGrid-style) post form-encoded bodies,
+// not JSON — needed for the /inbox capture channel below.
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 function serializeCustomer(customer, { includeLeads = false } = {}) {
@@ -68,6 +73,7 @@ function serializeCustomer(customer, { includeLeads = false } = {}) {
     qualifyingQuestions: customer.qualifyingQuestions,
     createdAt: customer.createdAt,
     webhookUrl: `/webhook/${customer.id}`,
+    inboxUrl: `/inbox/${customer.id}`,
     stats: customer.stats,
     planId: customer.planId,
     billingStatus: customer.billingStatus,
@@ -122,9 +128,11 @@ function csvEscape(value) {
 }
 
 function leadsToCsv(leads) {
-  const header = ['Received At', 'Classification', 'Confidence', 'Company', 'Problem', 'Budget', 'Raw Message', 'Response Sent'];
+  const header = ['Received At', 'Source', 'From', 'Classification', 'Confidence', 'Company', 'Problem', 'Budget', 'Raw Message', 'Response Sent'];
   const rows = leads.map((l) => [
     l.receivedAt,
+    l.source || 'webhook',
+    l.from || '',
     l.classification,
     l.confidence,
     l.companyName,
@@ -160,6 +168,17 @@ app.get('/api/config', (req, res) => {
 // GET /api/business-info — business details for the dashboard
 app.get('/api/business-info', (req, res) => {
   res.json(BUSINESS_INFO);
+});
+
+// GET /api/jarvis — Jarvis's identity/persona for the dashboard's "Meet Jarvis" panel
+app.get('/api/jarvis', (req, res) => {
+  res.json(JARVIS);
+});
+
+// GET /api/jarvis/activity — Jarvis's recent activity feed, newest first
+app.get('/api/jarvis/activity', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 20, 200);
+  res.json({ activity: activityLog.recent(limit) });
 });
 
 // GET /api/stats — aggregate metrics across every customer
@@ -350,7 +369,8 @@ app.post('/webhook/:customerId', async (req, res) => {
 
   try {
     const classification = await classifyLead(customer, message);
-    const lead = store.recordLead(customer.id, classification, message);
+    const lead = store.recordLead(customer.id, classification, message, { source: 'webhook' });
+    activityLog.logCapture({ customer, lead, source: 'webhook' });
     res.json({
       classification: lead.classification,
       confidence: lead.confidence,
@@ -359,6 +379,43 @@ app.post('/webhook/:customerId', async (req, res) => {
     });
   } catch (err) {
     console.error(`[webhook:${customer.id}] classification failed:`, err.message);
+    res.status(502).json({ error: 'Lead classification failed.', details: err.message });
+  }
+});
+
+// POST /inbox/:customerId — Jarvis's inbox capture channel. Point an inbound-email
+// parse service (Mailgun Routes, SendGrid Inbound Parse) or a Zapier/Make "new
+// email" automation at this URL and Jarvis classifies it exactly like a webhook
+// lead. Accepts Mailgun's field names (sender/body-plain), SendGrid's (from/text),
+// or a plain {from, subject, body} JSON payload.
+app.post('/inbox/:customerId', async (req, res) => {
+  const customer = store.getCustomer(req.params.customerId);
+  if (!customer) {
+    return res.status(404).json({ error: 'Customer not found.' });
+  }
+
+  const body = req.body || {};
+  const from = body.sender || body.from || body.From || null;
+  const subject = body.subject || body.Subject || '';
+  const text = body['body-plain'] || body['stripped-text'] || body.text || body.body || '';
+  const message = [subject, text].filter(Boolean).join('\n\n').trim();
+
+  if (!message) {
+    return res.status(400).json({ error: 'No email content found — expected a "text"/"body" (and optional "subject") field.' });
+  }
+
+  try {
+    const classification = await classifyLead(customer, message);
+    const lead = store.recordLead(customer.id, classification, message, { source: 'email', from });
+    activityLog.logCapture({ customer, lead, source: 'email' });
+    res.json({
+      classification: lead.classification,
+      confidence: lead.confidence,
+      response_text: lead.responseText,
+      lead,
+    });
+  } catch (err) {
+    console.error(`[inbox:${customer.id}] classification failed:`, err.message);
     res.status(502).json({ error: 'Lead classification failed.', details: err.message });
   }
 });

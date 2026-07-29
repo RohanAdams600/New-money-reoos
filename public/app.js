@@ -26,6 +26,44 @@ async function loadConfig() {
   }
 }
 
+async function loadJarvis() {
+  try {
+    const jarvis = await fetchJson('/api/jarvis');
+    document.getElementById('jarvis-avatar').textContent = jarvis.avatar || '🤖';
+    document.getElementById('jarvis-name').textContent = jarvis.name;
+    document.getElementById('jarvis-tagline').textContent = `"${jarvis.tagline}"`;
+    document.getElementById('jarvis-bio').textContent = jarvis.bio;
+    document.getElementById('jarvis-personality').innerHTML =
+      (jarvis.personality || []).map((p) => `<li>${escapeHtml(p)}</li>`).join('');
+    document.getElementById('jarvis-capabilities').innerHTML =
+      (jarvis.capabilities || []).map((c) => `<li>${escapeHtml(c)}</li>`).join('');
+  } catch (err) {
+    console.error('Failed to load Jarvis:', err);
+  }
+}
+
+function timeAgo(iso) {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+async function loadActivity() {
+  try {
+    const { activity } = await fetchJson('/api/jarvis/activity?limit=20');
+    const feed = document.getElementById('activity-feed');
+    feed.innerHTML = activity.length
+      ? activity.map((a) => `<li><span>${escapeHtml(a.message)}</span><span class="activity-time">${timeAgo(a.at)}</span></li>`).join('')
+      : '<li class="empty-state">No activity yet — Jarvis is watching, but nothing\'s come in.</li>';
+  } catch (err) {
+    console.error('Failed to load Jarvis activity:', err);
+  }
+}
+
 async function loadStats() {
   try {
     const stats = await fetchJson('/api/stats');
@@ -152,6 +190,7 @@ function renderLeadRow(lead) {
   return `
     <tr>
       <td>${escapeHtml(new Date(lead.receivedAt).toLocaleString())}</td>
+      <td><span class="lead-source">${escapeHtml(lead.source || 'webhook')}</span></td>
       <td><span class="badge ${lead.classification}">${lead.classification}</span></td>
       <td>${lead.confidence}%</td>
       <td>${escapeHtml(lead.companyName)}</td>
@@ -163,6 +202,7 @@ function renderLeadRow(lead) {
 
 function renderCustomerCard(customer) {
   const webhookAbsolute = `${window.location.origin}${customer.webhookUrl}`;
+  const inboxAbsolute = `${window.location.origin}${customer.inboxUrl}`;
   const state = getUiState(customer.id);
 
   const editSection = state.editing ? `
@@ -198,7 +238,7 @@ function renderCustomerCard(customer) {
         </div>
         ${filtered.length ? `
           <table class="leads-table">
-            <thead><tr><th>Received</th><th>Class</th><th>Conf.</th><th>Company</th><th>Problem</th><th>Budget</th></tr></thead>
+            <thead><tr><th>Received</th><th>Source</th><th>Class</th><th>Conf.</th><th>Company</th><th>Problem</th><th>Budget</th></tr></thead>
             <tbody>${filtered.map(renderLeadRow).join('')}</tbody>
           </table>
         ` : '<div class="empty-state">No leads in this category yet.</div>'}
@@ -210,7 +250,8 @@ function renderCustomerCard(customer) {
     <div class="customer-item">
       <div class="customer-header">
         <h3>${escapeHtml(customer.name)}</h3>
-        <span class="webhook">${escapeHtml(webhookAbsolute)}</span>
+        <span class="webhook" title="Webhook — point CRM/lead forms here">${escapeHtml(webhookAbsolute)}</span>
+        <span class="webhook" title="Inbox capture — point inbound email parsing (Mailgun/SendGrid/Zapier) here">✉️ ${escapeHtml(inboxAbsolute)}</span>
       </div>
       <div>${escapeHtml(customer.description)}</div>
       <div class="lead-breakdown">
@@ -246,13 +287,15 @@ async function loadCustomers({ force = false } = {}) {
       ? customers.map(renderCustomerCard).join('')
       : '<div class="empty-state">No customers yet — add one above to get a webhook URL.</div>';
 
-    const select = document.getElementById('test-customer');
-    const previousValue = select.value;
-    select.innerHTML = customers.length
-      ? customers.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('')
-      : '<option value="">Add a customer first</option>';
-    if (customers.some((c) => c.id === previousValue)) {
-      select.value = previousValue;
+    for (const selectId of ['test-customer', 'inbox-customer']) {
+      const select = document.getElementById(selectId);
+      const previousValue = select.value;
+      select.innerHTML = customers.length
+        ? customers.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('')
+        : '<option value="">Add a customer first</option>';
+      if (customers.some((c) => c.id === previousValue)) {
+        select.value = previousValue;
+      }
     }
   } catch (err) {
     console.error('Failed to load customers:', err);
@@ -344,6 +387,7 @@ document.getElementById('customer-list').addEventListener('submit', async (e) =>
 function refreshAll(options = {}) {
   loadStats();
   loadCustomers(options);
+  loadActivity();
 }
 
 document.getElementById('customer-form').addEventListener('submit', async (e) => {
@@ -426,7 +470,61 @@ document.getElementById('test-submit').addEventListener('click', async (e) => {
   }
 });
 
+document.getElementById('inbox-submit').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const status = document.getElementById('inbox-form-status');
+  const resultBox = document.getElementById('inbox-result');
+  status.textContent = '';
+  status.className = 'form-status';
+  resultBox.classList.remove('visible');
+
+  const customerId = document.getElementById('inbox-customer').value;
+  const from = document.getElementById('inbox-from').value.trim();
+  const subject = document.getElementById('inbox-subject').value.trim();
+  const body = document.getElementById('inbox-body').value.trim();
+
+  if (!customerId) {
+    status.textContent = 'Add and select a customer first.';
+    status.className = 'form-status error';
+    return;
+  }
+  if (!body) {
+    status.textContent = 'Paste an email body first.';
+    status.className = 'form-status error';
+    return;
+  }
+
+  const button = e.target;
+  button.disabled = true;
+  status.textContent = 'Jarvis is reading it...';
+
+  try {
+    const result = await fetchJson(`/inbox/${customerId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, subject, text: body }),
+    });
+
+    status.textContent = '';
+    document.getElementById('inbox-badge').textContent = result.classification;
+    document.getElementById('inbox-badge').className = `badge ${result.classification}`;
+    document.getElementById('inbox-confidence').textContent = ` ${result.confidence}% confidence`;
+    document.getElementById('inbox-company').textContent = result.lead.companyName || '—';
+    document.getElementById('inbox-problem').textContent = result.lead.problem || '—';
+    document.getElementById('inbox-budget').textContent = result.lead.budget || '—';
+    document.getElementById('inbox-response').textContent = result.response_text || '';
+    resultBox.classList.add('visible');
+    refreshAll({ force: true });
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = 'form-status error';
+  } finally {
+    button.disabled = false;
+  }
+});
+
 refreshAll();
 loadBusinessInfo();
 loadConfig();
+loadJarvis();
 setInterval(refreshAll, 15000);
