@@ -52,6 +52,26 @@ function parseQualifyingQuestions(input) {
     .filter(Boolean);
 }
 
+function csvEscape(value) {
+  const str = String(value ?? '');
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+function leadsToCsv(leads) {
+  const header = ['Received At', 'Classification', 'Confidence', 'Company', 'Problem', 'Budget', 'Raw Message', 'Response Sent'];
+  const rows = leads.map((l) => [
+    l.receivedAt,
+    l.classification,
+    l.confidence,
+    l.companyName,
+    l.problem,
+    l.budget,
+    l.rawMessage,
+    l.responseText,
+  ].map(csvEscape).join(','));
+  return [header.join(','), ...rows].join('\n');
+}
+
 // GET / — main admin dashboard
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -83,9 +103,9 @@ app.get('/api/stats', (req, res) => {
   res.json(store.getAggregateStats());
 });
 
-// GET /api/customers — list all customers (for the dashboard's customer list)
+// GET /api/customers — list all customers, including lead logs, for the dashboard
 app.get('/api/customers', (req, res) => {
-  res.json(store.listCustomers().map((c) => serializeCustomer(c)));
+  res.json(store.listCustomers().map((c) => serializeCustomer(c, { includeLeads: true })));
 });
 
 // POST /api/customer/create — add a new customer
@@ -107,13 +127,73 @@ app.post('/api/customer/create', (req, res) => {
   res.status(201).json(serializeCustomer(customer));
 });
 
-// GET /api/customer/:customerId/stats — one customer's stats + lead log
+// GET /api/customer/:customerId/stats — one customer's stats + lead log.
+// Optional ?classification=hot|warm|cold filters the returned lead log.
 app.get('/api/customer/:customerId/stats', (req, res) => {
   const customer = store.getCustomer(req.params.customerId);
   if (!customer) {
     return res.status(404).json({ error: 'Customer not found.' });
   }
-  res.json(serializeCustomer(customer, { includeLeads: true }));
+  const serialized = serializeCustomer(customer, { includeLeads: true });
+  const { classification } = req.query;
+  if (classification && ['hot', 'warm', 'cold'].includes(classification)) {
+    serialized.leads = serialized.leads.filter((l) => l.classification === classification);
+  }
+  res.json(serialized);
+});
+
+// PATCH /api/customer/:customerId — edit a customer's profile
+app.patch('/api/customer/:customerId', (req, res) => {
+  const customer = store.getCustomer(req.params.customerId);
+  if (!customer) {
+    return res.status(404).json({ error: 'Customer not found.' });
+  }
+
+  const { name, description, icpSize, icpBudget, qualifyingQuestions } = req.body || {};
+  if (name !== undefined && !name) {
+    return res.status(400).json({ error: 'name cannot be empty.' });
+  }
+  if (description !== undefined && !description) {
+    return res.status(400).json({ error: 'description cannot be empty.' });
+  }
+
+  const updated = store.updateCustomer(customer.id, {
+    name,
+    description,
+    icpSize,
+    icpBudget,
+    qualifyingQuestions: qualifyingQuestions !== undefined ? parseQualifyingQuestions(qualifyingQuestions) : undefined,
+  });
+
+  res.json(serializeCustomer(updated));
+});
+
+// DELETE /api/customer/:customerId — remove a customer and its lead history
+app.delete('/api/customer/:customerId', (req, res) => {
+  const deleted = store.deleteCustomer(req.params.customerId);
+  if (!deleted) {
+    return res.status(404).json({ error: 'Customer not found.' });
+  }
+  res.status(204).send();
+});
+
+// GET /api/customer/:customerId/leads/export — download the lead log as CSV
+app.get('/api/customer/:customerId/leads/export', (req, res) => {
+  const customer = store.getCustomer(req.params.customerId);
+  if (!customer) {
+    return res.status(404).json({ error: 'Customer not found.' });
+  }
+
+  let leads = customer.leads;
+  const { classification } = req.query;
+  if (classification && ['hot', 'warm', 'cold'].includes(classification)) {
+    leads = leads.filter((l) => l.classification === classification);
+  }
+
+  const filename = `${customer.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-leads.csv`;
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(leadsToCsv(leads));
 });
 
 // POST /webhook/:customerId — receive and classify a lead

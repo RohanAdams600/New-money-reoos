@@ -57,8 +57,74 @@ async function loadBusinessInfo() {
   }
 }
 
+// Per-customer UI state (expanded/filter/editing) — kept outside the re-rendered
+// markup so it survives the periodic refresh.
+const customerUiState = {};
+function getUiState(id) {
+  if (!customerUiState[id]) {
+    customerUiState[id] = { expanded: false, filter: 'all', editing: false };
+  }
+  return customerUiState[id];
+}
+
+function renderLeadRow(lead) {
+  return `
+    <tr>
+      <td>${escapeHtml(new Date(lead.receivedAt).toLocaleString())}</td>
+      <td><span class="badge ${lead.classification}">${lead.classification}</span></td>
+      <td>${lead.confidence}%</td>
+      <td>${escapeHtml(lead.companyName)}</td>
+      <td>${escapeHtml(lead.problem)}</td>
+      <td>${escapeHtml(lead.budget)}</td>
+    </tr>
+  `;
+}
+
 function renderCustomerCard(customer) {
   const webhookAbsolute = `${window.location.origin}${customer.webhookUrl}`;
+  const state = getUiState(customer.id);
+
+  const editSection = state.editing ? `
+    <form class="edit-form" data-id="${customer.id}">
+      <label>Name</label>
+      <input type="text" name="name" value="${escapeHtml(customer.name)}" required />
+      <label>What they do</label>
+      <textarea name="description" rows="2" required>${escapeHtml(customer.description)}</textarea>
+      <label>ICP Company Size</label>
+      <input type="text" name="icpSize" value="${escapeHtml(customer.icpSize)}" />
+      <label>ICP Annual Budget</label>
+      <input type="text" name="icpBudget" value="${escapeHtml(customer.icpBudget)}" />
+      <label>Qualifying Questions (one per line)</label>
+      <textarea name="qualifyingQuestions" rows="3">${escapeHtml((customer.qualifyingQuestions || []).join('\n'))}</textarea>
+      <div class="edit-actions">
+        <button type="submit">Save</button>
+        <button type="button" class="cancel-edit" data-id="${customer.id}">Cancel</button>
+      </div>
+      <div class="form-status" data-role="edit-status"></div>
+    </form>
+  ` : '';
+
+  let leadsSection = '';
+  if (state.expanded) {
+    const leads = customer.leads || [];
+    const filtered = state.filter === 'all' ? leads : leads.filter((l) => l.classification === state.filter);
+    const exportHref = `/api/customer/${customer.id}/leads/export${state.filter !== 'all' ? `?classification=${state.filter}` : ''}`;
+    leadsSection = `
+      <div class="leads-panel">
+        <div class="lead-filters">
+          ${['all', 'hot', 'warm', 'cold'].map((f) => `<button type="button" class="filter-chip ${state.filter === f ? 'active' : ''}" data-id="${customer.id}" data-filter="${f}">${f}</button>`).join('')}
+          <a class="export-link" href="${exportHref}" download>⬇ Export CSV</a>
+        </div>
+        ${filtered.length ? `
+          <table class="leads-table">
+            <thead><tr><th>Received</th><th>Class</th><th>Conf.</th><th>Company</th><th>Problem</th><th>Budget</th></tr></thead>
+            <tbody>${filtered.map(renderLeadRow).join('')}</tbody>
+          </table>
+        ` : '<div class="empty-state">No leads in this category yet.</div>'}
+      </div>
+    `;
+  }
+
   return `
     <div class="customer-item">
       <div class="customer-header">
@@ -72,11 +138,26 @@ function renderCustomerCard(customer) {
         <span class="badge cold">${customer.stats.cold} cold</span>
         <span>${customer.stats.total} total leads</span>
       </div>
+      <div class="customer-actions">
+        <button type="button" class="toggle-leads" data-id="${customer.id}">${state.expanded ? 'Hide Leads' : 'View Leads'}</button>
+        <button type="button" class="toggle-edit" data-id="${customer.id}">${state.editing ? 'Cancel Edit' : 'Edit'}</button>
+        <button type="button" class="delete-customer" data-id="${customer.id}">Delete</button>
+      </div>
+      ${editSection}
+      ${leadsSection}
     </div>
   `;
 }
 
-async function loadCustomers() {
+function isEditingAnyCustomer() {
+  return Object.values(customerUiState).some((s) => s.editing);
+}
+
+async function loadCustomers({ force = false } = {}) {
+  if (!force && isEditingAnyCustomer()) {
+    // Don't clobber an in-progress edit form on the periodic auto-refresh.
+    return;
+  }
   try {
     const customers = await fetchJson('/api/customers');
     const list = document.getElementById('customer-list');
@@ -97,9 +178,91 @@ async function loadCustomers() {
   }
 }
 
-function refreshAll() {
+// Event delegation for all per-customer-card interactions, since cards are
+// re-rendered wholesale on every refresh.
+document.getElementById('customer-list').addEventListener('click', async (e) => {
+  const toggleLeads = e.target.closest('.toggle-leads');
+  if (toggleLeads) {
+    const state = getUiState(toggleLeads.dataset.id);
+    state.expanded = !state.expanded;
+    loadCustomers({ force: true });
+    return;
+  }
+
+  const filterChip = e.target.closest('.filter-chip');
+  if (filterChip) {
+    const state = getUiState(filterChip.dataset.id);
+    state.filter = filterChip.dataset.filter;
+    loadCustomers({ force: true });
+    return;
+  }
+
+  const toggleEdit = e.target.closest('.toggle-edit');
+  if (toggleEdit) {
+    const state = getUiState(toggleEdit.dataset.id);
+    state.editing = !state.editing;
+    loadCustomers({ force: true });
+    return;
+  }
+
+  const cancelEdit = e.target.closest('.cancel-edit');
+  if (cancelEdit) {
+    getUiState(cancelEdit.dataset.id).editing = false;
+    loadCustomers({ force: true });
+    return;
+  }
+
+  const deleteBtn = e.target.closest('.delete-customer');
+  if (deleteBtn) {
+    const id = deleteBtn.dataset.id;
+    if (!confirm('Delete this customer and all of their lead history? This cannot be undone.')) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/customer/${id}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) {
+        throw new Error(`Delete failed (${res.status})`);
+      }
+      delete customerUiState[id];
+      refreshAll({ force: true });
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+});
+
+document.getElementById('customer-list').addEventListener('submit', async (e) => {
+  const form = e.target.closest('.edit-form');
+  if (!form) return;
+  e.preventDefault();
+
+  const id = form.dataset.id;
+  const statusEl = form.querySelector('[data-role="edit-status"]');
+  const payload = {
+    name: form.name.value.trim(),
+    description: form.description.value.trim(),
+    icpSize: form.icpSize.value.trim(),
+    icpBudget: form.icpBudget.value.trim(),
+    qualifyingQuestions: form.qualifyingQuestions.value,
+  };
+
+  try {
+    await fetchJson(`/api/customer/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    getUiState(id).editing = false;
+    refreshAll({ force: true });
+  } catch (err) {
+    statusEl.textContent = err.message;
+    statusEl.className = 'form-status error';
+  }
+});
+
+function refreshAll(options = {}) {
   loadStats();
-  loadCustomers();
+  loadCustomers(options);
 }
 
 document.getElementById('customer-form').addEventListener('submit', async (e) => {
@@ -125,7 +288,7 @@ document.getElementById('customer-form').addEventListener('submit', async (e) =>
     status.textContent = `Customer created. Webhook: ${window.location.origin}${customer.webhookUrl}`;
     status.className = 'form-status success';
     e.target.reset();
-    refreshAll();
+    refreshAll({ force: true });
   } catch (err) {
     status.textContent = err.message;
     status.className = 'form-status error';

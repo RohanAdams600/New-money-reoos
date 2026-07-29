@@ -206,6 +206,104 @@
   .badge.warm { background: color-mix(in srgb, var(--warm) 15%, white); color: var(--warm); }
   .badge.cold { background: color-mix(in srgb, var(--cold) 15%, white); color: var(--cold); }
 
+  .customer-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  .customer-actions button {
+    margin-top: 0;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.82rem;
+    background: #f3f4f6;
+    color: var(--text);
+  }
+
+  .customer-actions .delete-customer {
+    background: color-mix(in srgb, var(--cold) 12%, white);
+    color: var(--cold);
+  }
+
+  .edit-form {
+    margin-top: 0.9rem;
+    padding: 0.9rem;
+    border: 1px dashed #d1d5db;
+    border-radius: 10px;
+    background: #fafafa;
+  }
+
+  .edit-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .edit-actions button {
+    margin-top: 0;
+  }
+
+  .edit-actions .cancel-edit {
+    background: #f3f4f6;
+    color: var(--text);
+  }
+
+  .leads-panel {
+    margin-top: 0.9rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .lead-filters {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.7rem;
+    flex-wrap: wrap;
+  }
+
+  .filter-chip {
+    margin-top: 0;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.8rem;
+    text-transform: capitalize;
+    background: #f3f4f6;
+    color: var(--text);
+  }
+
+  .filter-chip.active {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: #fff;
+  }
+
+  .export-link {
+    margin-left: auto;
+    font-size: 0.82rem;
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .leads-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+
+  .leads-table th,
+  .leads-table td {
+    text-align: left;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid #f0f0f0;
+    vertical-align: top;
+  }
+
+  .leads-table th {
+    color: #6b7280;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+  }
+
   .empty-state {
     color: #6b7280;
     font-size: 0.9rem;
