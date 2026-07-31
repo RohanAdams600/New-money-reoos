@@ -1,0 +1,10 @@
+{
+  "name": "Jarvis — Night Desk HUD",
+  "short_name": "Jarvis",
+  "start_url": "/hud",
+  "display": "standalone",
+  "background_color": "#05060a",
+  "theme_color": "#05060a",
+  "orientation": "portrait",
+  "description": "Voice-controlled heads-up dashboard over Night Desk's live lead pipeline."
+}

@@ -7,6 +7,8 @@ const { classifyLead, draftAgentConfig, MODEL, DEMO_MODE } = require('./lib/clau
 const { JARVIS } = require('./lib/jarvis');
 const activityLog = require('./lib/activityLog');
 const gmailService = require('./lib/gmailService');
+const voiceService = require('./lib/voiceService');
+const hudBrain = require('./lib/hudBrain');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -43,6 +45,9 @@ app.use(express.json());
 // not JSON — needed for the /inbox capture channel below.
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+// LiveKit's browser SDK, served from node_modules so the HUD has no external
+// CDN dependency. Loaded lazily by hud.js only when voice is actually used.
+app.use('/vendor/livekit', express.static(path.join(__dirname, 'node_modules', 'livekit-client', 'dist')));
 
 function baseUrlFor(req) {
   return `${req.protocol}://${req.get('host')}`;
@@ -267,6 +272,82 @@ app.get('/auth/google/callback', async (req, res) => {
 // GET /api/stats — aggregate metrics across every agent Jarvis has built
 app.get('/api/stats', (req, res) => {
   res.json(store.getAggregateStats());
+});
+
+// --- HUD ---------------------------------------------------------------------
+
+// GET /hud — the glowing heads-up dashboard, built mobile-first for a phone.
+app.get('/hud', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'hud.html'));
+});
+
+// One snapshot of everything the HUD (and Jarvis's voice answers) run on.
+function dashboardSnapshot() {
+  return {
+    ...store.getDashboardStats(),
+    activity: activityLog.recent(12),
+    demoMode: DEMO_MODE,
+    gmailConnected: gmailService.isConnected(),
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+// GET /api/dashboard — everything the HUD renders, in one call
+app.get('/api/dashboard', (req, res) => {
+  res.json(dashboardSnapshot());
+});
+
+// POST /api/hud/ask — ask Jarvis a question about the business as text. Same
+// brain the voice path uses, so it works (and can be tested) with no mic and
+// no voice keys configured at all.
+app.post('/api/hud/ask', async (req, res) => {
+  const question = req.body && req.body.question;
+  if (!question) {
+    return res.status(400).json({ error: 'A "question" field is required.' });
+  }
+  try {
+    const reply = await hudBrain.answer(question, dashboardSnapshot());
+    res.json({ question, reply });
+  } catch (err) {
+    console.error('[hud/ask] failed:', err.message);
+    res.status(502).json({ error: 'Could not answer that.', details: err.message });
+  }
+});
+
+// GET /api/voice/config — which parts of the voice stack are actually wired up
+app.get('/api/voice/config', (req, res) => {
+  res.json({
+    enabled: voiceService.VOICE_ENABLED,
+    capabilities: voiceService.capabilities,
+    missing: voiceService.missingPieces(),
+    livekitUrl: voiceService.VOICE_ENABLED ? voiceService.LIVEKIT_URL : null,
+  });
+});
+
+// POST /api/voice/token — mint a LiveKit token for the browser and make sure
+// Jarvis's agent is in that room waiting. Required before the HUD can talk.
+app.post('/api/voice/token', async (req, res) => {
+  if (!voiceService.VOICE_ENABLED) {
+    return res.status(503).json({
+      error: 'Voice is not configured.',
+      missing: voiceService.missingPieces(),
+    });
+  }
+
+  const roomName = (req.body && req.body.room) || 'nightdesk-hud';
+  const identity = `rohan-${Math.random().toString(36).slice(2, 8)}`;
+
+  try {
+    // Required lazily so a missing/broken native LiveKit binary can't stop the
+    // whole server from booting — the HUD itself doesn't need it.
+    const voiceAgent = require('./lib/voiceAgent');
+    const token = await voiceService.createAccessToken({ roomName, identity });
+    await voiceAgent.ensureAgent({ roomName, getSnapshot: dashboardSnapshot });
+    res.json({ token, url: voiceService.LIVEKIT_URL, room: roomName, identity });
+  } catch (err) {
+    console.error('[voice/token] failed:', err.message);
+    res.status(502).json({ error: 'Could not start the voice session.', details: err.message });
+  }
 });
 
 // GET /api/customers — list every customer agent, including lead logs

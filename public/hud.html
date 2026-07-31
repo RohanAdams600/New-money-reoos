@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Jarvis — Night Desk HUD</title>
+
+<!-- Add-to-home-screen on iOS: full-screen, no Safari chrome, dark status bar. -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Jarvis" />
+<meta name="theme-color" content="#05060a" />
+<link rel="manifest" href="/manifest.json" />
+<!-- Inline so there's no extra file to serve and no 404 in the console. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2305060a'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%2322d3ee'/%3E%3C/svg%3E" />
+
+<style>
+  /* Status palette validated for this exact dark surface with
+     scripts/validate_palette.js (dark mode, surface #05060a): all six checks
+     pass. "Cold" is a crimson-pink rather than a plain red on purpose — plain
+     red against this amber fails colorblind separation (deutan ΔE 4.4), and
+     this passes. Every value is also labelled in text, never colour alone. */
+  :root {
+    --surface: #05060a;
+    --surface-1: #0c1119;
+    --surface-2: #141b26;
+    --line: rgba(255, 255, 255, 0.09);
+
+    --ink: #ffffff;
+    --ink-2: #aebbcc;
+    --ink-3: #6b7c92;
+
+    --hot: #0fa36d;
+    --warm: #c8850c;
+    --cold: #e0457b;
+    --accent: #22d3ee;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    padding: max(env(safe-area-inset-top), 14px) 14px calc(env(safe-area-inset-bottom) + 96px);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Ambient glow behind everything — the "heads-up" feel, purely decorative. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -30% -30% auto -30%;
+    height: 70vh;
+    background: radial-gradient(50% 50% at 50% 0%, rgba(34, 211, 238, 0.16), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  main { position: relative; z-index: 1; max-width: 560px; margin: 0 auto; }
+
+  header.hud-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .brand { flex: 1; }
+  .brand .name {
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    color: var(--accent);
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .brand .sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--hot);
+    box-shadow: 0 0 10px var(--hot);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  .live-dot.stale { background: var(--cold); box-shadow: 0 0 10px var(--cold); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .panel {
+    background: linear-gradient(180deg, var(--surface-1), var(--surface));
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+
+  .panel h2 {
+    margin: 0 0 12px;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 700;
+  }
+
+  /* Hero number — a single headline figure, not a chart. */
+  .hero { text-align: center; padding: 22px 16px 18px; }
+  .hero .figure {
+    font-size: 68px;
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    text-shadow: 0 0 34px rgba(34, 211, 238, 0.45);
+    font-variant-numeric: tabular-nums;
+  }
+  .hero .caption { margin-top: 8px; font-size: 12px; color: var(--ink-2); letter-spacing: 0.05em; }
+
+  /* Composition bar: 2px surface gaps between segments, 4px rounded ends. */
+  .bar { display: flex; gap: 2px; height: 10px; margin: 18px 0 0; }
+  .bar span { display: block; height: 100%; border-radius: 2px; }
+  .bar span:first-child { border-radius: 4px 2px 2px 4px; }
+  .bar span:last-child { border-radius: 2px 4px 4px 2px; }
+  .bar .seg-hot { background: var(--hot); box-shadow: 0 0 12px rgba(15, 163, 109, 0.6); }
+  .bar .seg-warm { background: var(--warm); box-shadow: 0 0 12px rgba(200, 133, 12, 0.6); }
+  .bar .seg-cold { background: var(--cold); box-shadow: 0 0 12px rgba(224, 69, 123, 0.6); }
+  .bar .seg-empty { background: var(--surface-2); flex: 1; }
+
+  /* Stat tiles. Numerals stay in ink; the coloured dot beside the label
+     carries identity, so nothing depends on colour alone. */
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tile {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 10px;
+    text-align: center;
+  }
+  .tile .v { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tile .k {
+    margin-top: 4px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--ink-2);
+    text-transform: uppercase;
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .dot.hot { background: var(--hot); box-shadow: 0 0 8px var(--hot); }
+  .dot.warm { background: var(--warm); box-shadow: 0 0 8px var(--warm); }
+  .dot.cold { background: var(--cold); box-shadow: 0 0 8px var(--cold); }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .split .cell { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .split .cell .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .split .cell .k { font-size: 10px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 3px; }
+
+  ul.rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  ul.rows li {
+    background: var(--surface-2);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 13px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  ul.rows .when { margin-left: auto; font-size: 10px; color: var(--ink-3); white-space: nowrap; }
+  ul.rows .who { color: var(--ink-2); font-size: 11px; }
+
+  .chip {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    padding: 3px 7px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    border: 1px solid currentColor;
+    flex-shrink: 0;
+  }
+  .chip.hot { color: var(--hot); }
+  .chip.warm { color: var(--warm); }
+  .chip.cold { color: var(--cold); }
+
+  .empty { color: var(--ink-3); font-size: 12px; font-style: italic; }
+
+  /* Voice dock, pinned above the home indicator. */
+  .dock {
+    position: fixed;
+    left: 0; right: 0;
+    bottom: 0;
+    padding: 10px 14px calc(env(safe-area-inset-bottom) + 10px);
+    background: linear-gradient(180deg, transparent, var(--surface) 32%);
+    z-index: 5;
+  }
+  .dock-inner { max-width: 560px; margin: 0 auto; display: flex; gap: 8px; align-items: center; }
+
+  #ask {
+    flex: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--ink);
+    padding: 13px 16px;
+    font-size: 16px; /* 16px stops iOS Safari zooming the page on focus */
+    font-family: inherit;
+  }
+  #ask::placeholder { color: var(--ink-3); }
+
+  #mic {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    border: 1px solid var(--accent);
+    background: rgba(34, 211, 238, 0.12);
+    color: var(--accent);
+    font-size: 20px;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  #mic.live { background: var(--accent); color: var(--surface); box-shadow: 0 0 24px rgba(34, 211, 238, 0.65); }
+  #mic:disabled { opacity: 0.35; border-color: var(--line); color: var(--ink-3); background: var(--surface-2); }
+
+  /* Needs its own opaque backdrop: it floats above the scrolling feed, and the
+     dock's gradient is still transparent this high up, so without one the text
+     collides with whatever list row happens to be behind it. */
+  .say {
+    max-width: 560px;
+    margin: 0 auto 8px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--ink-2);
+    text-align: center;
+    background: var(--surface-1);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 9px 13px;
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55);
+  }
+  .say:empty { display: none; }
+  .say b { color: var(--accent); font-weight: 600; }
+
+  .notice {
+    border: 1px solid var(--warm);
+    background: rgba(200, 133, 12, 0.12);
+    color: #f2d08a;
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+  .notice code { background: rgba(0,0,0,0.35); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<main>
+  <header class="hud-top">
+    <div class="brand">
+      <div class="name">Night Desk</div>
+      <div class="sub" id="sub">Jarvis · connecting…</div>
+    </div>
+    <div class="live-dot" id="live-dot"></div>
+  </header>
+
+  <div id="demo-notice" class="notice" hidden></div>
+
+  <section class="panel hero">
+    <div class="figure" id="hero-total">—</div>
+    <div class="caption">leads captured, all channels</div>
+    <div class="bar" id="bar"><span class="seg-empty"></span></div>
+  </section>
+
+  <section class="panel">
+    <h2>Pipeline</h2>
+    <div class="tiles">
+      <div class="tile"><div class="v" id="t-hot">—</div><div class="k"><i class="dot hot"></i>Hot</div></div>
+      <div class="tile"><div class="v" id="t-warm">—</div><div class="k"><i class="dot warm"></i>Warm</div></div>
+      <div class="tile"><div class="v" id="t-cold">—</div><div class="k"><i class="dot cold"></i>Cold</div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Where they came from</h2>
+    <div class="split">
+      <div class="cell"><div class="v" id="s-own">—</div><div class="k">Your inbox</div></div>
+      <div class="cell"><div class="v" id="s-clients">—</div><div class="k">Customer agents</div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Latest leads</h2>
+    <ul class="rows" id="leads"><li class="empty">Loading…</li></ul>
+  </section>
+
+  <section class="panel">
+    <h2>Jarvis activity</h2>
+    <ul class="rows" id="activity"><li class="empty">Loading…</li></ul>
+  </section>
+</main>
+
+<div class="dock">
+  <div class="say" id="say"></div>
+  <div class="dock-inner">
+    <input id="ask" type="text" placeholder="Ask Jarvis about your pipeline…" autocomplete="off" />
+    <button id="mic" title="Talk to Jarvis">🎙️</button>
+  </div>
+</div>
+
+<script src="/hud.js"></script>
+</body>
+</html>
