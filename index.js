@@ -9,6 +9,7 @@ const activityLog = require('./lib/activityLog');
 const gmailService = require('./lib/gmailService');
 const voiceService = require('./lib/voiceService');
 const hudBrain = require('./lib/hudBrain');
+const taskStore = require('./lib/tasks');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -82,6 +83,29 @@ function parseQualifyingQuestions(input) {
     .filter(Boolean);
 }
 
+// Which classifications automatically become a follow-up task. Hot only by
+// default: a hot lead going unactioned is the expensive failure, while turning
+// every warm lead into a task would bury the real ones. Set AUTO_TASK_FOR to
+// "hot,warm" to widen it, or "none" to turn it off.
+const AUTO_TASK_FOR = (process.env.AUTO_TASK_FOR ?? 'hot')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter((s) => s && s !== 'none');
+
+// Single path for every captured lead — webhook, inbox, and the Gmail poller —
+// so logging and task creation can't drift apart between channels.
+function captureLead({ customer, classification, message, source, from = null }) {
+  const lead = store.recordLead(customer.id, classification, message, { source, from });
+  activityLog.logCapture({ customer, lead, source });
+
+  if (AUTO_TASK_FOR.includes(lead.classification)) {
+    const task = taskStore.createTaskForLead({ lead, customer });
+    if (task) activityLog.log(`✅ Added a task: ${task.title}`);
+  }
+
+  return lead;
+}
+
 function csvEscape(value) {
   const str = String(value ?? '');
   return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
@@ -124,8 +148,7 @@ async function pollGmailInbox(baseUrl) {
       }
 
       const classification = await classifyLead(nightDesk, text);
-      const lead = store.recordLead(nightDesk.id, classification, text, { source: 'email', from: msg.from });
-      activityLog.logCapture({ customer: nightDesk, lead, source: 'email' });
+      captureLead({ customer: nightDesk, classification, message: text, source: 'email', from: msg.from });
 
       if (gmailService.AUTO_SEND) {
         await gmailService.sendReply(baseUrl, msg, classification.response_text);
@@ -286,6 +309,11 @@ function dashboardSnapshot() {
   return {
     ...store.getDashboardStats(),
     activity: activityLog.recent(12),
+    tasks: {
+      ...taskStore.getTaskStats(),
+      open: taskStore.listTasks({ status: 'open' }),
+      recentlyDone: taskStore.listTasks({ status: 'done' }).slice(0, 5),
+    },
     demoMode: DEMO_MODE,
     gmailConnected: gmailService.isConnected(),
     generatedAt: new Date().toISOString(),
@@ -306,12 +334,57 @@ app.post('/api/hud/ask', async (req, res) => {
     return res.status(400).json({ error: 'A "question" field is required.' });
   }
   try {
-    const reply = await hudBrain.answer(question, dashboardSnapshot());
-    res.json({ question, reply });
+    // handle() acts on commands ("remind me to…") and answers everything else.
+    const { reply, action } = await hudBrain.handle(question, dashboardSnapshot());
+    if (action) activityLog.log(`🗣️ ${reply}`);
+    res.json({ question, reply, action });
   } catch (err) {
     console.error('[hud/ask] failed:', err.message);
     res.status(502).json({ error: 'Could not answer that.', details: err.message });
   }
+});
+
+// --- Tasks -------------------------------------------------------------------
+
+// GET /api/tasks — the task list. ?status=open|done to filter.
+app.get('/api/tasks', (req, res) => {
+  res.json({
+    tasks: taskStore.listTasks({ status: req.query.status }),
+    stats: taskStore.getTaskStats(),
+  });
+});
+
+// POST /api/tasks — add a task by hand
+app.post('/api/tasks', (req, res) => {
+  const { title, notes, priority } = req.body || {};
+  if (!title || !String(title).trim()) {
+    return res.status(400).json({ error: 'A "title" field is required.' });
+  }
+  const task = taskStore.createTask({ title, notes, priority, source: 'manual' });
+  activityLog.log(`✅ Added a task: ${task.title}`);
+  res.status(201).json(task);
+});
+
+// PATCH /api/tasks/:taskId — edit or complete/reopen a task
+app.patch('/api/tasks/:taskId', (req, res) => {
+  const { title, notes, priority, status } = req.body || {};
+  if (status !== undefined && !['open', 'done'].includes(status)) {
+    return res.status(400).json({ error: 'status must be "open" or "done".' });
+  }
+
+  const task = taskStore.updateTask(req.params.taskId, { title, notes, priority, status });
+  if (!task) return res.status(404).json({ error: 'Task not found.' });
+
+  if (status === 'done') activityLog.log(`✅ Completed: ${task.title}`);
+  res.json(task);
+});
+
+// DELETE /api/tasks/:taskId — remove a task entirely
+app.delete('/api/tasks/:taskId', (req, res) => {
+  if (!taskStore.deleteTask(req.params.taskId)) {
+    return res.status(404).json({ error: 'Task not found.' });
+  }
+  res.status(204).send();
 });
 
 // GET /api/voice/config — which parts of the voice stack are actually wired up
@@ -458,8 +531,7 @@ app.post('/webhook/:customerId', async (req, res) => {
 
   try {
     const classification = await classifyLead(customer, message);
-    const lead = store.recordLead(customer.id, classification, message, { source: 'webhook' });
-    activityLog.logCapture({ customer, lead, source: 'webhook' });
+    const lead = captureLead({ customer, classification, message, source: 'webhook' });
     res.json({
       classification: lead.classification,
       confidence: lead.confidence,
@@ -495,8 +567,7 @@ app.post('/inbox/:customerId', async (req, res) => {
 
   try {
     const classification = await classifyLead(customer, message);
-    const lead = store.recordLead(customer.id, classification, message, { source: 'email', from });
-    activityLog.logCapture({ customer, lead, source: 'email' });
+    const lead = captureLead({ customer, classification, message, source: 'email', from });
     res.json({
       classification: lead.classification,
       confidence: lead.confidence,

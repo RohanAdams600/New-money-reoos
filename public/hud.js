@@ -60,6 +60,68 @@ function renderLeads(leads) {
     .join('');
 }
 
+function renderTasks(taskState) {
+  const el = $('tasks');
+  const open = (taskState && taskState.open) || [];
+  $('task-count').textContent = open.length ? open.length : '';
+
+  if (!open.length) {
+    el.innerHTML = '<li class="empty">Nothing on your list.</li>';
+    return;
+  }
+
+  el.innerHTML = open
+    .map((t) => `
+      <li class="${t.priority === 'high' ? 'task-high' : ''}">
+        <button class="check" data-done="${esc(t.id)}" aria-label="Complete task"><i></i></button>
+        <span class="task-body">
+          ${esc(t.title)}
+          ${t.notes ? `<div class="meta">${esc(t.notes)}</div>` : ''}
+        </span>
+        <button class="task-del" data-del="${esc(t.id)}" aria-label="Delete task">&times;</button>
+      </li>`)
+    .join('');
+}
+
+// Delegated so the handlers survive the list being re-rendered on every poll.
+$('tasks').addEventListener('click', async (e) => {
+  const done = e.target.closest('[data-done]');
+  const del = e.target.closest('[data-del]');
+  try {
+    if (done) {
+      await fetch(`/api/tasks/${done.dataset.done}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'done' }),
+      });
+    } else if (del) {
+      await fetch(`/api/tasks/${del.dataset.del}`, { method: 'DELETE' });
+    } else {
+      return;
+    }
+    refresh();
+  } catch (err) {
+    say(`Couldn't update that task: ${esc(err.message)}`);
+  }
+});
+
+$('new-task').addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  const title = e.target.value.trim();
+  if (!title) return;
+  e.target.value = '';
+  try {
+    await fetch('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    });
+    refresh();
+  } catch (err) {
+    say(`Couldn't add that: ${esc(err.message)}`);
+  }
+});
+
 function renderActivity(activity) {
   const el = $('activity');
   if (!activity.length) {
@@ -87,6 +149,7 @@ async function refresh() {
     $('s-clients').textContent = d.clients.total;
 
     renderBar(d.combined);
+    renderTasks(d.tasks);
     renderLeads(d.recentLeads || []);
     renderActivity(d.activity || []);
 
