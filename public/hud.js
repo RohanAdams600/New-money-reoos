@@ -60,6 +60,95 @@ function renderLeads(leads) {
     .join('');
 }
 
+function whenLabel(iso, allDay) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const opts = allDay
+    ? { weekday: 'short', month: 'short', day: 'numeric' }
+    : { weekday: 'short', hour: 'numeric', minute: '2-digit' };
+  return new Intl.DateTimeFormat('en-US', opts).format(d);
+}
+
+function renderCalendar(cal) {
+  const el = $('calendar');
+  const input = $('new-event');
+  const state = (cal && cal.state) || 'not_configured';
+
+  if (state !== 'connected') {
+    input.disabled = true;
+    const message = {
+      not_configured: 'Google isn’t set up yet — add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.',
+      not_connected: 'Not connected. <a href="/auth/google">Connect Google</a> to see your calendar.',
+      // A token issued before Calendar existed in this app lacks the scope, so
+      // this is a re-auth rather than a first-time connect — say which.
+      needs_reauth: 'Connected to Gmail, but not Calendar. <a href="/auth/google">Re-authorize</a> to add calendar access.',
+      error: `Couldn’t read the calendar: ${esc((cal && cal.error) || 'unknown error')}`,
+    }[state] || 'Calendar unavailable.';
+    el.innerHTML = `<li class="empty">${message}</li>`;
+    $('cal-count').textContent = '';
+    return;
+  }
+
+  input.disabled = false;
+  const events = cal.upcoming || [];
+  $('cal-count').textContent = events.length ? events.length : '';
+
+  if (!events.length) {
+    el.innerHTML = '<li class="empty">Nothing scheduled this week.</li>';
+    return;
+  }
+
+  el.innerHTML = events
+    .map((e) => `
+      <li>
+        <span class="task-body">
+          ${esc(e.title)}
+          <div class="meta">${esc(whenLabel(e.start, e.allDay))}${e.attendees.length ? ` · ${esc(e.attendees.length)} invited` : ''}${e.meetLink ? ' · Meet' : ''}</div>
+        </span>
+        ${e.attendees.length ? `<button class="invite-btn" data-invite="${esc(e.id)}">Invite</button>` : ''}
+      </li>`)
+    .join('');
+}
+
+$('calendar').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-invite]');
+  if (!btn) return;
+  if (!confirm('Email the invite to everyone on this event?')) return;
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/calendar/events/${btn.dataset.invite}/invite`, { method: 'POST' });
+    const data = await res.json();
+    say(res.ok ? `Invite sent to ${esc(data.attendees.join(', '))}.` : `Couldn’t send: ${esc(data.details || data.error)}`);
+  } catch (err) {
+    say(`Couldn’t send the invite: ${esc(err.message)}`);
+  }
+  refresh();
+});
+
+$('new-event').addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return;
+  const text = e.target.value.trim();
+  if (!text) return;
+  e.target.value = '';
+  say('Booking…');
+  try {
+    const res = await fetch('/api/calendar/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    // Always echo the parsed time back — it's the only way a misread
+    // "at 2" gets caught before an invite goes out.
+    say(res.ok
+      ? `Booked “${esc(data.event.title)}” for ${esc(data.parsed.spokenTime)}.`
+      : `Couldn’t book that: ${esc(data.details || data.error)}`);
+    refresh();
+  } catch (err) {
+    say(`Couldn’t book that: ${esc(err.message)}`);
+  }
+});
+
 function renderTasks(taskState) {
   const el = $('tasks');
   const open = (taskState && taskState.open) || [];
@@ -149,6 +238,7 @@ async function refresh() {
     $('s-clients').textContent = d.clients.total;
 
     renderBar(d.combined);
+    renderCalendar(d.calendar);
     renderTasks(d.tasks);
     renderLeads(d.recentLeads || []);
     renderActivity(d.activity || []);

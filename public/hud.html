@@ -228,6 +228,23 @@
   }
   .task-del:hover { color: var(--cold); }
 
+  .invite-btn {
+    background: rgba(34, 211, 238, 0.14);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 6px 11px;
+    margin: 0 8px 0 0;
+    cursor: pointer;
+    flex-shrink: 0;
+    align-self: center;
+  }
+  .invite-btn:disabled { opacity: 0.4; }
+
   .new-task {
     width: 100%;
     margin-top: 10px;
@@ -241,6 +258,7 @@
   }
   .new-task::placeholder { color: var(--ink-3); }
   .new-task:focus { outline: none; border-color: var(--accent); border-style: solid; }
+  .new-task:disabled { opacity: 0.45; }
 
   /* Voice dock, pinned above the home indicator. */
   .dock {
@@ -343,6 +361,12 @@
       <div class="cell"><div class="v" id="s-own">—</div><div class="k">Your inbox</div></div>
       <div class="cell"><div class="v" id="s-clients">—</div><div class="k">Customer agents</div></div>
     </div>
+  </section>
+
+  <section class="panel">
+    <h2>Calendar <span class="count" id="cal-count"></span></h2>
+    <ul class="rows" id="calendar"><li class="empty">Loading…</li></ul>
+    <input id="new-event" class="new-task" type="text" placeholder="+ Book: “call with jane@x.com friday at 2”" autocomplete="off" />
   </section>
 
   <section class="panel">

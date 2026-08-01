@@ -13,6 +13,7 @@
     "@deepgram/sdk": "^5.7.0",
     "@elevenlabs/elevenlabs-js": "^2.60.0",
     "@livekit/rtc-node": "^0.13.33",
+    "chrono-node": "^2.10.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "googleapis": "^173.0.0",

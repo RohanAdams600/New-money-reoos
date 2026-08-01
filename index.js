@@ -10,6 +10,8 @@ const gmailService = require('./lib/gmailService');
 const voiceService = require('./lib/voiceService');
 const hudBrain = require('./lib/hudBrain');
 const taskStore = require('./lib/tasks');
+const calendarService = require('./lib/calendarService');
+const scheduleParser = require('./lib/scheduleParser');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -320,9 +322,29 @@ function dashboardSnapshot() {
   };
 }
 
+// Same snapshot plus live calendar events. Separate from the sync version
+// because reading the calendar is a network call — anything that just needs
+// counts (and the voice agent's fast path) shouldn't pay for it.
+async function dashboardSnapshotAsync(baseUrl) {
+  const base = dashboardSnapshot();
+  const state = calendarService.status();
+
+  if (state.state !== 'connected') {
+    return { ...base, calendar: { ...state, upcoming: [] } };
+  }
+
+  try {
+    const upcoming = await calendarService.listUpcoming(baseUrl, { maxResults: 6 });
+    return { ...base, calendar: { ...state, upcoming, timezone: scheduleParser.TIMEZONE } };
+  } catch (err) {
+    console.error('[dashboard] calendar read failed:', err.message);
+    return { ...base, calendar: { state: 'error', error: err.message, upcoming: [] } };
+  }
+}
+
 // GET /api/dashboard — everything the HUD renders, in one call
-app.get('/api/dashboard', (req, res) => {
-  res.json(dashboardSnapshot());
+app.get('/api/dashboard', async (req, res) => {
+  res.json(await dashboardSnapshotAsync(baseUrlFor(req)));
 });
 
 // POST /api/hud/ask — ask Jarvis a question about the business as text. Same
@@ -334,13 +356,108 @@ app.post('/api/hud/ask', async (req, res) => {
     return res.status(400).json({ error: 'A "question" field is required.' });
   }
   try {
-    // handle() acts on commands ("remind me to…") and answers everything else.
-    const { reply, action } = await hudBrain.handle(question, dashboardSnapshot());
+    const baseUrl = baseUrlFor(req);
+    // handle() acts on commands ("remind me to…", "book a call…") and answers
+    // everything else. The calendar dep is only passed when it's actually
+    // usable, so a scheduling request with no calendar connected gets told so
+    // rather than silently doing nothing.
+    const deps = calendarService.isConnected()
+      ? { calendar: { createEvent: (d) => calendarService.createEvent(baseUrl, d) } }
+      : {};
+
+    const snapshot = await dashboardSnapshotAsync(baseUrl);
+    const { reply, action } = await hudBrain.handle(question, snapshot, deps);
     if (action) activityLog.log(`🗣️ ${reply}`);
     res.json({ question, reply, action });
   } catch (err) {
     console.error('[hud/ask] failed:', err.message);
     res.status(502).json({ error: 'Could not answer that.', details: err.message });
+  }
+});
+
+// --- Calendar ----------------------------------------------------------------
+
+// GET /api/calendar — connection state plus the next week of events
+app.get('/api/calendar', async (req, res) => {
+  const state = calendarService.status();
+  if (state.state !== 'connected') {
+    return res.json({ ...state, upcoming: [], autoInvite: calendarService.AUTO_INVITE });
+  }
+  try {
+    const upcoming = await calendarService.listUpcoming(baseUrlFor(req));
+    res.json({ ...state, upcoming, autoInvite: calendarService.AUTO_INVITE, timezone: scheduleParser.TIMEZONE });
+  } catch (err) {
+    console.error('[calendar] list failed:', err.message);
+    res.status(502).json({ state: 'error', error: err.message, upcoming: [] });
+  }
+});
+
+// POST /api/calendar/events — book a meeting. Accepts either a structured
+// body, or { text } for natural language ("dinner friday from 7-10pm").
+app.post('/api/calendar/events', async (req, res) => {
+  if (!calendarService.isConnected()) {
+    return res.status(503).json({ error: 'Google Calendar is not connected.', ...calendarService.status() });
+  }
+
+  const body = req.body || {};
+  let details;
+
+  if (body.text) {
+    details = scheduleParser.parseSchedulingRequest(body.text);
+    if (!details) {
+      return res.status(400).json({ error: `Couldn't find a date and time in "${body.text}".` });
+    }
+  } else {
+    if (!body.title || !body.startIso) {
+      return res.status(400).json({ error: 'Provide either "text", or both "title" and "startIso".' });
+    }
+    details = {
+      title: body.title,
+      startIso: body.startIso,
+      minutes: body.minutes || calendarService.DEFAULT_MEETING_MINUTES,
+      attendees: body.attendees || [],
+      spokenTime: scheduleParser.formatWhen(new Date(body.startIso)),
+    };
+  }
+
+  try {
+    const event = await calendarService.createEvent(baseUrlFor(req), { ...details, description: body.description || '' });
+    activityLog.log(`📅 Booked "${event.title}" for ${details.spokenTime}${event.invitesSent ? ' and sent the invite' : ''}.`);
+    res.status(201).json({ event, parsed: details });
+  } catch (err) {
+    console.error('[calendar] create failed:', err.message);
+    res.status(502).json({ error: 'Could not create the event.', details: err.message });
+  }
+});
+
+// POST /api/calendar/events/:eventId/invite — actually email the attendees.
+// Separate from creation on purpose: an invite is an outward-facing action on
+// Rohan's behalf, so it takes an explicit confirmation unless
+// CALENDAR_AUTO_INVITE is on. Same rule as GMAIL_AUTO_SEND.
+app.post('/api/calendar/events/:eventId/invite', async (req, res) => {
+  if (!calendarService.isConnected()) {
+    return res.status(503).json({ error: 'Google Calendar is not connected.' });
+  }
+  try {
+    const event = await calendarService.sendInvites(baseUrlFor(req), req.params.eventId);
+    activityLog.log(`📤 Sent the invite for "${event.title}" to ${event.attendees.join(', ')}.`);
+    res.json(event);
+  } catch (err) {
+    console.error('[calendar] invite failed:', err.message);
+    res.status(502).json({ error: 'Could not send the invite.', details: err.message });
+  }
+});
+
+// DELETE /api/calendar/events/:eventId — remove an event
+app.delete('/api/calendar/events/:eventId', async (req, res) => {
+  if (!calendarService.isConnected()) {
+    return res.status(503).json({ error: 'Google Calendar is not connected.' });
+  }
+  try {
+    await calendarService.deleteEvent(baseUrlFor(req), req.params.eventId, { notify: req.query.notify === 'true' });
+    res.status(204).send();
+  } catch (err) {
+    res.status(502).json({ error: 'Could not delete the event.', details: err.message });
   }
 });
 
@@ -415,7 +532,14 @@ app.post('/api/voice/token', async (req, res) => {
     // whole server from booting — the HUD itself doesn't need it.
     const voiceAgent = require('./lib/voiceAgent');
     const token = await voiceService.createAccessToken({ roomName, identity });
-    await voiceAgent.ensureAgent({ roomName, getSnapshot: dashboardSnapshot });
+    const agentBaseUrl = baseUrlFor(req);
+    await voiceAgent.ensureAgent({
+      roomName,
+      getSnapshot: () => dashboardSnapshotAsync(agentBaseUrl),
+      getDeps: () => (calendarService.isConnected()
+        ? { calendar: { createEvent: (d) => calendarService.createEvent(agentBaseUrl, d) } }
+        : {}),
+    });
     res.json({ token, url: voiceService.LIVEKIT_URL, room: roomName, identity });
   } catch (err) {
     console.error('[voice/token] failed:', err.message);
