@@ -1,0 +1,36 @@
+# Jarvis — Windows desktop assistant
+#
+# Versions are pinned exactly. Every one of these was checked against PyPI and
+# every one has a prebuilt win_amd64 wheel for Python 3.11, 3.12 and 3.13, so
+# `pip install -r requirements.txt` needs no compiler and no Visual Studio.
+#
+# READ THIS BEFORE YOU INSTALL: use Python 3.11, 3.12 or 3.13.
+# PyAudio has NO wheel for Python 3.14 — on 3.14 pip tries to compile it from
+# source, fails looking for portaudio.h, and that is the exact "pipwin install
+# pyaudio" dead end. Pinning the interpreter is the fix. check_setup.py enforces it.
+
+# --- Brain -------------------------------------------------------------------
+anthropic==0.121.0
+
+# --- Ears (speech to text) ---------------------------------------------------
+SpeechRecognition==3.17.0
+PyAudio==0.2.14
+
+# --- Voice (text to speech) --------------------------------------------------
+# pyttsx3 drives the Windows SAPI voices that are already on the machine, so
+# Jarvis can talk with no API key and no network. elevenlabs is the upgrade
+# path to the real voice; the app falls back to pyttsx3 whenever the key is
+# missing or the call fails, so speech never becomes a hard dependency.
+pyttsx3==2.99
+elevenlabs==2.62.0
+
+# --- Hands (desktop + window control) ----------------------------------------
+PyAutoGUI==0.9.54
+pywinauto==0.6.9
+psutil==7.2.2
+
+# --- Face (the HUD window) ---------------------------------------------------
+customtkinter==6.0.0
+
+# --- Config ------------------------------------------------------------------
+python-dotenv==1.2.2

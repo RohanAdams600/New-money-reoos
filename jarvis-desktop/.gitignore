@@ -1,0 +1,9 @@
+# Your keys. Never committed.
+.env
+
+# The virtual environment. Rebuilt from requirements.txt on any machine.
+.venv/
+venv/
+
+__pycache__/
+*.py[cod]
